@@ -10,8 +10,10 @@ pip install torch==2.5.0 torchvision==0.20.0 torchaudio==2.5.0 --index-url https
 pip install pandas scikit-learn patool tqdm sktime matplotlib reformer_pytorch transformers
 ```
 
-## Execute TaTS
+## Execute TaTS (Default: iTransformer+GPT2, Environment dataset)
 ```sh
+chmod +x ./scripts/main_forecast.sh
+./scripts/main_forecast.sh
 ```
 
 
