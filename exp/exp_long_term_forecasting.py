@@ -584,7 +584,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 outputs = self.model.module(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 if isinstance(outputs, tuple): outputs = outputs[0]
         else:
-            encoder_emb,outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark,proj=True)
+            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
             if isinstance(outputs, tuple): outputs = outputs[0]
 
         f_dim = -1 if self.args.features == 'MS' else 0
@@ -595,7 +595,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         if self.prompt_weight > 0:
             prompt_emb = F.normalize(prompt_emb, p=2, dim=2) #(b, 24, 12)
             preds_prompt_emb = F.normalize(prompt_emb, p=2, dim=2)
-            # encoder_emb = self.model.module.get_encoder_embedding()
+            encoder_emb = self.model.module.get_encoder_embedding()
             encoder_emb = F.normalize(encoder_emb, p=2, dim=1) # (b, 5, 512)
             coattn_out = self.ca_layer(prompt_emb, encoder_emb, encoder_emb, type='coattn') # ts
             # print(coattn_out.shape)
