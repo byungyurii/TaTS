@@ -430,6 +430,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         self.mlp_proj=self.mlp_proj.to(self.device)
         self.learning_rate2=1e-2
         self.learning_rate3=1e-4
+        self.args = args
     def _build_model(self):
         model = self.model_dict[self.args.model].Model(self.args).float()
 
@@ -859,10 +860,11 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         mae, mse, rmse, mape, mspe = metric(preds, trues)
         print('mse:{}, mae:{}'.format(mse, mae))
         f = open(self.args.save_name, 'a')
-        f.write(setting + "  \n")
-        f.write('mse:{}, mae:{}, rmse:{}, mape:{}, mspe:{}'.format(mse, mae, rmse, mape, mspe))
-        f.write('\n')
-        f.write('\n')
+        # f.write(setting + "  \n")
+        f.write(f'{self.args.model}\tf{self.args.data_path}\tf{self.args.llm_model}\tf{self.args.seq_len}\tf{self.args.label_len}\tf{self.args.pred_len}\tf{self.args.text_emb}\tf{self.args.prior_weight}\tf{self.args.prompt_weight}\t')
+        f.write('{}\t{}\t{}\t{}\t{}'.format(mse, mae, rmse, mape, mspe))
+        # f.write('\n')
+        # f.write('\n')
         f.close()
 
         np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe]))

@@ -1,20 +1,20 @@
 all_models=("iTransformer" "PatchTST" "Crossformer" "FEDformer" "FiLM" "Autoformder" "Informer" "Transformer")
 
-GPU=3
+GPU=2
 
 root_path=./data
 
 seeds=(2025)
 
-# datasets=("Environment")
-datasets=("Economy" "SocialGood" "Traffic")
+datasets=("Environment")
+# datasets=("Economy" "SocialGood" "Traffic")
 current_dir=$(pwd)
 
 prior_weight=-1
 prompt_weight=-1
 text_emb=12
-# pred_lengths=(48 96 192 336)
-pred_lengths=(6 8 10 12)
+pred_lengths=(48 96 192 336)
+# pred_lengths=(6 8 10 12)
 
 for seed in "${seeds[@]}"
 do
