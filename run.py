@@ -164,7 +164,7 @@ if __name__ == '__main__':
     args.c_out = 1
     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!overwrite features to 'S' for univariate time series data and dim=1")
     fix_seed = args.seed
-    args.prompt_weight=args.prior_weight
+    # args.prompt_weight=args.prior_weight
     print("Now using seed {}".format(fix_seed))
     random.seed(fix_seed)
     torch.manual_seed(fix_seed)

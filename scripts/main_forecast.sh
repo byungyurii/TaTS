@@ -1,18 +1,19 @@
 all_models=("iTransformer")
 
-GPU=0
+GPU=3
 
 root_path=./data
 
 seeds=(2025)
 
 datasets=("Environment")
-
+# datasets=("Economy")
 current_dir=$(pwd)
 
-prior_weight=0.5
+prior_weight=0.0
 text_emb=12
-pred_lengths=(48)
+pred_lengths=(48 96 192 336)
+# pred_lengths=(6 8 10 12)
 
 for seed in "${seeds[@]}"
 do
@@ -41,11 +42,12 @@ do
                     --des Exp \
                     --seed $seed \
                     --prior_weight $prior_weight \
-                    --save_name result_environment_itransformer_gpt2 \
+                    --prompt_weight 1.0 \
+                    --save_name result_traffic_itransformer_gpt2 \
                     --llm_model GPT2 \
                     --huggingface_token NA \
-                    --train_epochs 5 \
-                    --patience 5
+                    --train_epochs 150 \
+                    --patience 60 
             done
         done
     done

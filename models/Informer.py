@@ -73,12 +73,14 @@ class Model(nn.Module):
             self.act = F.gelu
             self.dropout = nn.Dropout(configs.dropout)
             self.projection = nn.Linear(configs.d_model * configs.seq_len, configs.num_class)
-
+    def get_encoder_embedding(self):
+        return self.enc_out
+    
     def long_forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
         dec_out = self.dec_embedding(x_dec, x_mark_dec)
         enc_out, attns = self.encoder(enc_out, attn_mask=None)
-
+        self.enc_out = enc_out
         dec_out = self.decoder(dec_out, enc_out, x_mask=None, cross_mask=None)
 
         return dec_out  # [B, L, D]
