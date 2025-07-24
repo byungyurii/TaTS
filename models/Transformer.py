@@ -78,6 +78,7 @@ class Model(nn.Module):
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
         enc_out, attns = self.encoder(enc_out, attn_mask=None)
         self.enc_out = enc_out
+        # print(f"x_enc shape: {x_enc.shape}\t enc_out shape: {enc_out.shape}")
 
         dec_out = self.dec_embedding(x_dec, x_mark_dec)
         dec_out = self.decoder(dec_out, enc_out, x_mask=None, cross_mask=None)

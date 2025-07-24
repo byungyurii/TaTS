@@ -1,17 +1,18 @@
-all_models=("PatchTST" "Crossformer" "DLinear" "FEDformer" "FiLM" "Autoformer" "Informer" "Transformer")
+all_models=("iTransformer" "PatchTST" "Crossformer" "DLinear" "FEDformer" "FiLM" "Autoformer" "Informer" "Transformer")
 
-GPU=2
+GPU=3
 
 root_path=./data
 
 seeds=(2025)
+note="original"
 
 datasets=("Agriculture" "Climate" )
 # datasets=("Health")
 current_dir=$(pwd)
 
-prior_weight=0.5
-prompt_weight=0.5
+prior_weight=0.0
+prompt_weight=1.0
 text_emb=12
 # pred_lengths=(12 24 36 48)
 pred_lengths=(6 8 10 12)
@@ -28,7 +29,7 @@ do
             for pred_len in "${pred_lengths[@]}"
             do
                 echo "Running model $model_name with root $root_path, data $data_path, and pred_len $pred_len"
-                CUDA_VISIBLE_DEVICES=${GPU} python -u run.py \
+                CUDA_VISIBLE_DEVICES=${GPU} python -u run2.py \
                     --task_name long_term_forecast \
                     --is_training 1 \
                     --root_path $root_path \
@@ -44,12 +45,12 @@ do
                     --seed $seed \
                     --prior_weight $prior_weight \
                     --prompt_weight $prompt_weight \
-                    --save_name results2.csv \
+                    --save_name single_test.csv \
                     --llm_model GPT2 \
                     --huggingface_token NA \
                     --train_epochs 100 \
-                    --patience 20 \
-                    --note "TaTs" 
+                    --patience 60 \
+                    --note $note 
             done
         done
     done

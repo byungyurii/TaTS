@@ -1,7 +1,7 @@
 import argparse
 import os
 import torch
-from exp.exp_long_term_forecasting_backup import Exp_Long_Term_Forecast
+from exp.exp_long_term_forecasting import Exp_Long_Term_Forecast
 from utils.print_args import print_args
 import random
 import numpy as np
@@ -160,8 +160,8 @@ if __name__ == '__main__':
 
 
     args.features = 'S'
-    args.enc_in = 1 + args.text_emb
-    args.dec_in = 1 + args.text_emb
+    args.enc_in = 1 
+    args.dec_in = 1
     args.c_out = 1
     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!overwrite features to 'S' for univariate time series data and dim=1")
     fix_seed = args.seed
@@ -170,6 +170,7 @@ if __name__ == '__main__':
     random.seed(fix_seed)
     torch.manual_seed(fix_seed)
     np.random.seed(fix_seed)
+    torch.cuda.manual_seed_all(fix_seed)
     args.use_gpu = True if torch.cuda.is_available() else False
 
     print(torch.cuda.is_available())

@@ -37,87 +37,10 @@ class MLP(nn.Module):
         return x
 warnings.filterwarnings('ignore')
 
-class CrossAttentionLayer(nn.Module):
-    def __init__(self, query_dim, kv_dim, n_heads, output_dim, pred_len):
-        super().__init__()
-        assert query_dim % n_heads == 0, "query_dim must be divisible by n_heads"
-        assert kv_dim % n_heads == 0, "kv_dim must be divisible by n_heads"
-
-        self.n_heads = n_heads
-        self.head_dim_q = query_dim // n_heads
-        self.head_dim_kv = kv_dim // n_heads
-
-        # Q, K, V projection
-        self.q_proj = nn.Linear(query_dim, query_dim)
-        self.k_proj = nn.Linear(kv_dim, query_dim)
-        self.v_proj = nn.Linear(kv_dim, query_dim)
-
-        # Output projection
-        self.norm1 = nn.LayerNorm(query_dim)
-        self.norm2 = nn.LayerNorm(query_dim)
-        self.act1 = nn.LeakyReLU()
-        self.dropout = nn.Dropout(0.1)
-        self.out_proj = nn.Linear(query_dim, query_dim)
-        # self.out_proj2 = nn.Linear(query_dim, output_dim)
-        self.mlp = nn.Sequential(nn.Linear(query_dim, pred_len), nn.LeakyReLU())
-        self.film_net = nn.Sequential(
-            nn.Linear(query_dim, query_dim//2),
-            nn.ReLU(),
-            nn.Linear(query_dim//2, pred_len*2),  # 48 for scale + 48 for shift
-        )
-        self.pred_len = pred_len
-
-    def forward(self, queries, keys, values, mask=None):
-        B, L_q, _ = queries.shape
-        B, L_kv, _ = keys.shape
-
-        # Project Q, K, V
-        Q = self.q_proj(queries)  # (B, L_q, D_q)
-        K = self.k_proj(keys)     # (B, L_kv, D_q)
-        V = self.v_proj(values)   # (B, L_kv, D_q)
-
-        # Split into heads
-        Q = Q.view(B, L_q, self.n_heads, self.head_dim_q).transpose(1, 2)  # (B, H, L_q, D_hq)
-        K = K.view(B, L_kv, self.n_heads, self.head_dim_q).transpose(1, 2) # (B, H, L_kv, D_hq)
-        V = V.view(B, L_kv, self.n_heads, self.head_dim_q).transpose(1, 2) # (B, H, L_kv, D_hq)
-
-        # Scaled Dot-Product Attention
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.head_dim_q ** 0.5)  # (B, H, L_q, L_kv)
-        if mask is not None:
-            scores = scores.masked_fill(mask == 0, float('-inf'))
-        attn_weights = F.softmax(scores, dim=-1)  # (B, H, L_q, L_kv)
-
-        attn_output = torch.matmul(attn_weights, V)  # (B, H, L_q, D_hq)
-
-        # Merge heads
-        attn_output = attn_output.transpose(1, 2).contiguous()  # (B, L_q, H, D_hq)
-        attn_output = attn_output.view(B, L_q, -1)  # (B, L_q, D_q)
-        # print(f"attn_output, {attn_output.shape}")
-        attn_output = queries + attn_output  # Residual connection
-        y = attn_output = self.norm1(attn_output)
-        y = self.dropout(self.act1(y))
-        attn_output = self.norm2(attn_output+y)
-        
-        attn_output = self.out_proj(attn_output)
-        # print(f"attn_output, {attn_output.shape}") # attn_output, torch.Size([32, head, q_dim])
-        
-
-        # Final projection
-        attn_out = attn_output.mean(dim=1)
-        film_params = self.film_net(attn_out)
-        
-        scale, shift = film_params[:,:self.pred_len], film_params[:,self.pred_len:]
-        scale = scale.unsqueeze(-1)
-        shift = shift.unsqueeze(-1)
-        # residual = F.interpolate(attn_output.transpose(1,2), size=self.pred_len, mode="linear").transpose(1,2)
-        residual = self.mlp(attn_output)
-        residual = residual.permute(0,2,1)[:,:,:1]
-        # print("attn_output mean:", attn_output.abs().mean().item(), "residual mean:", residual.abs().mean().item())
-
-        return scale, shift, residual
 
 
-from layers.SelfAttention_Family import AttentionLayer, FullAttention
+
+
 class Exp_Long_Term_Forecast(Exp_Basic):
     def __init__(self, args):
         args.task_name = 'long_term_forecast'
@@ -125,7 +48,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         configs=args
         self.text_path=configs.text_path
         self.prompt_weight=configs.prompt_weight
-        self.prior_weight = configs.prior_weight
         self.attribute="final_sum"
         self.type_tag=configs.type_tag
         self.text_len=configs.text_len
@@ -159,7 +81,12 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         mlp_sizes2=[self.text_embedding_dim+self.args.pred_len,self.args.pred_len]
         if mlp_sizes2 is not None:
             self.mlp_proj = MLP(mlp_sizes2,dropout_rate=0.3)
-        self.ca = CrossAttentionLayer(query_dim=24, kv_dim=512, n_heads=8, output_dim=self.pred_len, pred_len=self.pred_len).to(self.device)
+
+        self.language_to_time_series_projection = nn.Sequential(
+            nn.Linear(self.d_llm, 12),
+            nn.ReLU()
+        ).cuda()
+
         if configs.llm_model == 'Doc2Vec':
             print('Cannot using Doc2Vec')
             print("Training Doc2Vec model")
@@ -429,8 +356,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         self.mlp=self.mlp.to(self.device)
         self.mlp_proj=self.mlp_proj.to(self.device)
         self.learning_rate2=1e-2
-        self.learning_rate3=1e-4
-        self.args = args
+        self.learning_rate3=1e-3
     def _build_model(self):
         model = self.model_dict[self.args.model].Model(self.args).float()
 
@@ -451,9 +377,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
     def _select_optimizer_proj(self):
         model_optim = optim.Adam(self.mlp_proj.parameters(), lr=self.args.learning_rate3)
         return model_optim
-    def _select_optimizer_ca(self):
-        model_optim = optim.Adam(self.ca.parameters(), lr=self.args.learning_rate3, weight_decay=0.01)
-        return model_optim
     def _select_optimizer_weight(self):
         model_optim = optim.Adam([{'params': self.weight1.parameters()},
                               {'params': self.weight2.parameters()}], lr=self.args.learning_rate_weight)
@@ -473,7 +396,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         self.model.eval()
         self.mlp.eval()
         self.mlp_proj.eval()
-        self.ca.eval()
         with torch.no_grad():
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark,index) in enumerate(vali_loader):
                 batch_x = batch_x.float().to(self.device)
@@ -488,18 +410,14 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
                 # decoder input
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device).detach()
-
+                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
                 # batch_x is [bsz, seq_len, num_vars], prompt_emb is [bsz, seq_len, text_embedding_dim]. concatenate them in the last dimension
-                # batch_x = torch.cat([batch_x, prompt_emb, preds_prompt_emb], dim=-1).detach()
-                batch_x = batch_x.detach()
+                batch_x = torch.cat([batch_x, prompt_emb], dim=-1)
 
                 # dec_inp is [bsz, label_len + pred_len, num_vars], where only label_len is the true data, the rest is 0
-                # text_dec_inp = torch.zeros((self.args.batch_size, self.args.pred_len, self.text_embedding_dim)).to(self.device)
-                # text_dec_inp = torch.cat([prompt_emb[:, :self.args.label_len, :], preds_prompt_emb[:, :self.args.label_len, :], text_dec_inp], dim=1).float().to(self.device)
-                # dec_inp = torch.cat([dec_inp, text_dec_inp], dim=-1).detach()
-                # print(batch_x.shape, batch_x_mark.shape, dec_inp.shape, batch_y_mark.shape) 
-                # prompt_emb, text_dec_inp concat 안했을 때 print(batch_x.shape, batch_x_mark.shape, dec_inp.shape, batch_y_mark.shape) --> (24,1) (24,4), (60,1), (60,4)
+                text_dec_inp = torch.zeros((self.args.batch_size, self.args.pred_len, self.text_embedding_dim)).to(self.device)
+                text_dec_inp = torch.cat([prompt_emb[:, :self.args.label_len, :], text_dec_inp], dim=1).float().to(self.device)
+                dec_inp = torch.cat([dec_inp, text_dec_inp], dim=-1)
                 # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
@@ -509,26 +427,14 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 else:
                     if self.args.output_attention:
-                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                        outputs = outputs[0]
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
                     else:
                         outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 f_dim = -1 if self.args.features == 'MS' else 0
-                # print(outputs.shape) #(32, 48, 1)
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                # print(outputs.shape) #(32, 48,1)
-                # encoder_embedding : (32,5, 512)
-                # print(prompt_emb.shape, preds_prompt_emb.shape) # (32,24,12), (32,24,12)
-                encoder_embedding = self.model.get_encoder_embedding()
-                prompt_emb = F.normalize(prompt_emb.permute(0, 2, 1), p=2, dim=2)
-                encoder_embedding = F.normalize(encoder_embedding, p=2, dim=1)
-                scale, shift, residual = self.ca(prompt_emb, encoder_embedding, encoder_embedding)
-                # outputs_2 = norm(outputs_2).unsqueeze(-1)
                 # TODO: this only works for single variate time series
                 outputs = outputs[:, :, 0].unsqueeze(-1)
-                # outputs = outputs * (1+scale) + shift
-                outputs = outputs + residual*self.prompt_weight
-                outputs = (1-self.prior_weight)*outputs+self.prior_weight*prior_y
+                outputs = (1-self.prompt_weight)*outputs+self.prompt_weight*prior_y
 
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
@@ -549,7 +455,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         self.model.train()
         self.mlp.train()
         self.mlp_proj.train()
-        self.ca.train()
         if all_metric:
             total_mae = np.average(total_mae)
             total_mse = np.average(total_mse)
@@ -576,7 +481,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         model_optim = self._select_optimizer()
         model_optim_mlp = self._select_optimizer_mlp()
         model_optim_proj = self._select_optimizer_proj()
-        model_optim_ca = self._select_optimizer_ca()
         criterion = self._select_criterion()
 
         if self.args.use_amp:
@@ -589,14 +493,12 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             self.model.train()
             self.mlp.train()
             self.mlp_proj.train()
-            self.ca.train()
             epoch_time = time.time()
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark,index) in enumerate(train_loader):
                 iter_count += 1
                 model_optim.zero_grad()
                 model_optim_mlp.zero_grad()
                 model_optim_proj.zero_grad()
-                model_optim_ca.zero_grad()
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
 
@@ -611,47 +513,35 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
                 # decoder input
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device).detach()
+                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
                 # batch_x is [bsz, seq_len, num_vars], prompt_emb is [bsz, seq_len, text_embedding_dim]. concatenate them in the last dimension
-                # batch_x = torch.cat([batch_x, prompt_emb, preds_prompt_emb], dim=-1).detach()
-                batch_x = batch_x.detach()
+                batch_x = torch.cat([batch_x, prompt_emb], dim=-1).detach()
 
                 # dec_inp is [bsz, label_len + pred_len, num_vars], where only label_len is the true data, the rest is 0
-                # text_dec_inp = torch.zeros((self.args.batch_size, self.args.pred_len, self.text_embedding_dim)).to(self.device)
-                # text_dec_inp = torch.cat([prompt_emb[:, :self.args.label_len, :], preds_prompt_emb[:, :self.args.label_len, :], text_dec_inp], dim=1).float().to(self.device)
-                # dec_inp = torch.cat([dec_inp, text_dec_inp], dim=-1).detach()
-                # print(batch_x.shape, batch_x_mark.shape, dec_inp.shape, batch_y_mark.shape) 
-                # prompt_emb, text_dec_inp concat 안했을 때 print(batch_x.shape, batch_x_mark.shape, dec_inp.shape, batch_y_mark.shape) --> (24,1) (24,4), (60,1), (60,4)
+                text_dec_inp = torch.zeros((self.args.batch_size, self.args.pred_len, self.text_embedding_dim)).to(self.device)
+                text_dec_inp = torch.cat([prompt_emb[:, :self.args.label_len, :], text_dec_inp], dim=1).float().to(self.device)
+                dec_inp = torch.cat([dec_inp, text_dec_inp], dim=-1).detach()
+
                 # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if self.args.output_attention:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
                         else:
-                            encoder_embedding, outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, proj=True)
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 else:
                     if self.args.output_attention:
-                        encoder_embedding, outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, proj=True)
-                        outputs = outputs[0]
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
                     else:
-                        encoder_embedding, outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, proj=True)
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 f_dim = -1 if self.args.features == 'MS' else 0
-                # print(outputs.shape) #(32, 48, 1)
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                # print(outputs.shape) #(32, 48,1)
-                # encoder_embedding : (32,5, 512)
-                # print(prompt_emb.shape, preds_prompt_emb.shape) # (32,24,12), (32,24,12)
-                prompt_emb = F.normalize(prompt_emb.permute(0, 2, 1), p=2, dim=2)
-                encoder_embedding = F.normalize(encoder_embedding, p=2, dim=1)
-                scale, shift, residual = self.ca(prompt_emb, encoder_embedding, encoder_embedding)
-                # outputs_2 = norm(outputs_2).unsqueeze(-1)
                 # TODO: this only works for single variate time series
                 outputs = outputs[:, :, 0].unsqueeze(-1)
-                # outputs = outputs * (1+scale) + shift
-                outputs = outputs + residual*self.prompt_weight
-                outputs = (1-self.prior_weight)*outputs+self.prior_weight*prior_y
-
+                outputs = (1-self.prompt_weight)*outputs+self.prompt_weight*prior_y
+            
+                
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
                 loss = criterion(outputs, batch_y)
                 train_loss.append(loss.item())
@@ -670,15 +560,9 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     scaler.update()
                 else:
                     loss.backward()
-                    # for name, param in self.ca.named_parameters():
-                    #     if param.grad is not None:
-                    #         print(f"{name} grad mean: {param.grad.abs().mean().item()}")
-                    #     else:
-                    #         print(f"{name} has no grad!")
                     model_optim.step()
                     model_optim_mlp.step()
                     model_optim_proj.step()
-                    model_optim_ca.step()
 
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
@@ -687,7 +571,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss (MSE): {4:.7f} Test MAE: {5:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss, test_mae))
-            early_stopping(vali_loss, self.model, path)
+            early_stopping(vali_loss, self.model, path + '/' + 'checkpoint.pth')
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
@@ -712,7 +596,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         self.model.eval()
         self.mlp.eval()
         self.mlp_proj.eval()
-        self.ca.eval()
         with torch.no_grad():
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark,index) in enumerate(test_loader):
                 batch_x = batch_x.float().to(self.device)
@@ -777,15 +660,12 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
                 # batch_x is [bsz, seq_len, num_vars], prompt_emb is [bsz, seq_len, text_embedding_dim]. concatenate them in the last dimension
-                # batch_x = torch.cat([batch_x, prompt_emb, preds_prompt_emb], dim=-1).detach()
-                batch_x = batch_x.detach()
+                batch_x = torch.cat([batch_x, prompt_emb], dim=-1).detach()
 
                 # dec_inp is [bsz, label_len + pred_len, num_vars], where only label_len is the true data, the rest is 0
-                # text_dec_inp = torch.zeros((self.args.batch_size, self.args.pred_len, self.text_embedding_dim)).to(self.device)
-                # text_dec_inp = torch.cat([prompt_emb[:, :self.args.label_len, :], preds_prompt_emb[:, :self.args.label_len, :], text_dec_inp], dim=1).float().to(self.device)
-                # dec_inp = torch.cat([dec_inp, text_dec_inp], dim=-1).detach()
-                # print(batch_x.shape, batch_x_mark.shape, dec_inp.shape, batch_y_mark.shape) 
-                # prompt_emb, text_dec_inp concat 안했을 때 print(batch_x.shape, batch_x_mark.shape, dec_inp.shape, batch_y_mark.shape) --> (24,1) (24,4), (60,1), (60,4)
+                text_dec_inp = torch.zeros((self.args.batch_size, self.args.pred_len, self.text_embedding_dim)).to(self.device)
+                text_dec_inp = torch.cat([prompt_emb[:, :self.args.label_len, :], text_dec_inp], dim=1).float().to(self.device)
+                dec_inp = torch.cat([dec_inp, text_dec_inp], dim=-1).detach()
                 # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
@@ -795,25 +675,14 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 else:
                     if self.args.output_attention:
-                        encoder_embedding, outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, proj=True)
-                        outputs = outputs[0]
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
                     else:
-                        encoder_embedding, outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, proj=True)
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 f_dim = -1 if self.args.features == 'MS' else 0
-                # print(outputs.shape) #(32, 48, 1)
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                # print(outputs.shape) #(32, 48,1)
-                # encoder_embedding : (32,5, 512)
-                # print(prompt_emb.shape, preds_prompt_emb.shape) # (32,24,12), (32,24,12)
-                prompt_emb = F.normalize(prompt_emb.permute(0, 2, 1), p=2, dim=2)
-                encoder_embedding = F.normalize(encoder_embedding, p=2, dim=1)
-                scale, shift, residual = self.ca(prompt_emb, encoder_embedding, encoder_embedding)
-                # outputs_2 = norm(outputs_2).unsqueeze(-1)
                 # TODO: this only works for single variate time series
                 outputs = outputs[:, :, 0].unsqueeze(-1)
-                # outputs = outputs * (1+scale) + shift
-                outputs = outputs + residual*self.prompt_weight
-                outputs = (1-self.prior_weight)*outputs+self.prior_weight*prior_y
+                outputs = (1-self.prompt_weight)*outputs+self.prompt_weight*prior_y
                 
                 batch_y = batch_y[:, -self.args.pred_len:, :].to(self.device)
                 outputs = outputs.detach().cpu().numpy()
@@ -861,11 +730,12 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         print('mse:{}, mae:{}'.format(mse, mae))
         f = open(self.args.save_name, 'a')
         # f.write(setting + "  \n")
-        f.write(f'{self.args.model}\tf{self.args.data_path}\tf{self.args.llm_model}\tf{self.args.seq_len}\tf{self.args.label_len}\tf{self.args.pred_len}\tf{self.args.text_emb}\tf{self.args.prior_weight}\tf{self.args.prompt_weight}\t')
+        f.write(f'{self.args.model}\t{self.args.data_path[:-4]}\t{self.args.llm_model}\t{self.args.seq_len}\t{self.args.label_len}\t{self.args.pred_len}\t{self.args.text_emb}\t{self.args.prior_weight}\t{self.args.prompt_weight}\t')
         f.write('{}\t{}\t{}\t{}\t{}'.format(mse, mae, rmse, mape, mspe))
-        # f.write('\n')
+        f.write('\n')
         # f.write('\n')
         f.close()
+
 
         np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe]))
         np.save(folder_path + 'pred.npy', preds)

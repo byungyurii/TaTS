@@ -87,10 +87,12 @@ class Model(nn.Module):
         x_enc += self.enc_pos_embedding
         x_enc = self.pre_norm(x_enc)
         enc_out, attns = self.encoder(x_enc)
-        self.enc_out = enc_out
+        self.enc_out = enc_out[-1].view(enc_out[-1].shape[0],-1, enc_out[-1].shape[-1])
+        # print(f"x_enc shape: {x_enc.shape}\t enc_out shape: {enc_out[-1].shape}")
 
         dec_in = repeat(self.dec_pos_embedding, 'b ts_d l d -> (repeat b) ts_d l d', repeat=x_enc.shape[0])
         dec_out = self.decoder(dec_in, enc_out)
+        # print(f"dec_in shape: {dec_in.shape}\t dec_out shape: {dec_out.shape}")
         return dec_out
 
     def imputation(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask):

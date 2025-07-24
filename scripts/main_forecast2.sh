@@ -1,4 +1,4 @@
-all_models=("iTransformer" "PatchTST" "Crossformer" "FEDformer" "FiLM" "Autoformder" "Informer" "Transformer")
+all_models=("Crossformer" "FiLM" "Autoformer" "Informer" "Transformer")
 
 GPU=2
 
@@ -6,15 +6,15 @@ root_path=./data
 
 seeds=(2025)
 
-datasets=("Environment")
-# datasets=("Economy" "SocialGood" "Traffic")
+datasets=("Agriculture")
+# datasets=("Health")
 current_dir=$(pwd)
 
-prior_weight=-1
-prompt_weight=-1
+prior_weight=0
+prompt_weight=0
 text_emb=12
-pred_lengths=(48 96 192 336)
-# pred_lengths=(6 8 10 12)
+# pred_lengths=(12 24 36 48)
+pred_lengths=(6)
 
 for seed in "${seeds[@]}"
 do
@@ -44,11 +44,12 @@ do
                     --seed $seed \
                     --prior_weight $prior_weight \
                     --prompt_weight $prompt_weight \
-                    --save_name results.csv \
+                    --save_name results2.csv \
                     --llm_model GPT2 \
                     --huggingface_token NA \
-                    --train_epochs 150 \
-                    --patience 60 
+                    --train_epochs 1 \
+                    --patience 5 \
+                    --note "embedding dim" 
             done
         done
     done

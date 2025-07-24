@@ -57,15 +57,17 @@ class Model(nn.Module):
         x_enc /= stdev
 
         _, _, N = x_enc.shape
+        
 
         # Embedding
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
         enc_out, attns = self.encoder(enc_out, attn_mask=None)
-        self.enc_out = enc_out
-        # print(enc_out.shape) #(32, 5, 512)
+        self.enc_out = enc_out #(B, 5+txt_emb_dim, 512)
+         
 
         dec_out = self.projection(enc_out)
         # print(dec_out.shape, N) # (32, 5, 48), 1
+        # print(f"x_enc shape: {x_enc.shape}\t enc_out shape: {enc_out.shape}\t dec_out shape: {dec_out.shape}") 
         dec_out = dec_out.permute(0, 2, 1)[:, :, :N]
         # De-Normalization from Non-stationary Transformer
         dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))

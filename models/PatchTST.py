@@ -89,12 +89,16 @@ class Model(nn.Module):
         # Encoder
         # z: [bs * nvars x patch_num x d_model]
         enc_out, attns = self.encoder(enc_out)
-        self.enc_out = enc_out
+        self.enc_out = enc_out.view(enc_out.shape[0], -1, enc_out.shape[-1])
+        # print(f"x_enc shape: {x_enc.shape}\t enc_out shape: {enc_out.shape}") # (32,13,24) --> (416,4,512) --> (32, 1+txt_emb_dim, 4, 512)
         # z: [bs x nvars x patch_num x d_model]
         enc_out = torch.reshape(
             enc_out, (-1, n_vars, enc_out.shape[-2], enc_out.shape[-1]))
+        # print(f"enc_out reshaped: {enc_out.shape}")
+        
         # z: [bs x nvars x d_model x patch_num]
         enc_out = enc_out.permute(0, 1, 3, 2)
+        
 
         # Decoder
         dec_out = self.head(enc_out)  # z: [bs x nvars x target_window]

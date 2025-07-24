@@ -125,9 +125,12 @@ class Model(nn.Module):
         seasonal_init = F.pad(seasonal_init[:, -self.label_len:, :], (0, 0, 0, self.pred_len))
         # enc
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
-        self.enc_out = enc_out
         dec_out = self.dec_embedding(seasonal_init, x_mark_dec)
         enc_out, attns = self.encoder(enc_out, attn_mask=None)
+        self.enc_out = enc_out
+
+        # print(enc_out.shape)  # (
+        self.enc_out = enc_out
         # dec
         seasonal_part, trend_part = self.decoder(dec_out, enc_out, x_mask=None, cross_mask=None, trend=trend_init)
         # final
