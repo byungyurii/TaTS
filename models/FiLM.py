@@ -130,7 +130,9 @@ class Model(nn.Module):
             self.dropout = nn.Dropout(configs.dropout)
             self.projection = nn.Linear(
                 configs.enc_in * configs.seq_len, configs.num_class)
-
+    def get_encoder_embedding(self):
+        return self.enc_out
+    
     def forecast(self, x_enc, x_mark_enc, x_dec_true, x_mark_dec):
         # Normalization from Non-stationary Transformer
         means = x_enc.mean(1, keepdim=True).detach()
@@ -139,6 +141,7 @@ class Model(nn.Module):
         x_enc /= stdev
 
         x_enc = x_enc * self.affine_weight + self.affine_bias
+        self.enc_out = x_enc
         x_decs = []
         jump_dist = 0
         for i in range(0, len(self.multiscale) * len(self.window_size)):

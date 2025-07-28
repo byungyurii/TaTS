@@ -1,3 +1,4 @@
+# 규리언니 코드
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
 from utils.tools import EarlyStopping, adjust_learning_rate, visual
@@ -39,22 +40,23 @@ warnings.filterwarnings('ignore')
 
 
 class CoAttention(nn.Module):
-    def __init__(self, dim_kv=512, dim_q=12, seq_len=24):
+    def __init__(self, dim_kv=512, dim_q=12):
         super().__init__()
         self.q_proj = nn.Linear(dim_q, dim_q)  # project k to (b, 24, 12)
         self.k_proj = nn.Linear(dim_kv, dim_q)  # project k to (b, 5, 12)
-        # self.v_proj = nn.Linear(dim_kv, dim_q)  # project v to (b, 5, 12)
-        self.linear = nn.Linear(seq_len, dim_q)
+        self.v_proj = nn.Linear(dim_kv, dim_q)  # project v to (b, 5, 12)
+        self.linear = nn.Linear(5, dim_q)
 
     def forward(self, q, k, v, mask=None):
         # q: (b, 24, 12), k: (b, 5, 512), v: (b, 5, 512)
+       
         b, q_len, dim_q = q.shape
-        _, kv_len, dim_kv = k.shape
-
+        _, kv_len, dim_kv = k.shape ### 수정 필요 ,, 
+        
         # Project k, v -> (b, 5, 12)
         q_proj = self.q_proj(q)
         k_proj = self.k_proj(k)
-        # v_proj = self.v_proj(v)
+        v_proj = self.v_proj(v)
 
         # Co-attention
         qk = torch.bmm(q_proj, k_proj.transpose(1, 2))  # (b, 24, 5)
@@ -90,19 +92,19 @@ class CrossAttentionLayer(nn.Module):
         self.v_proj = nn.Linear(kv_dim, query_dim)
 
         # Output projection
-        # self.norm1 = nn.LayerNorm(query_dim)
-        # self.norm2 = nn.LayerNorm(query_dim)
-        # self.act1 = nn.LeakyReLU()
-        # self.dropout = nn.Dropout(0.1)
-        # self.out_proj = nn.Linear(query_dim, query_dim)
-        # # self.out_proj2 = nn.Linear(query_dim, output_dim)
-        # self.mlp = nn.Sequential(nn.Linear(query_dim, pred_len), nn.LeakyReLU())
-        # self.film_net = nn.Sequential(
-        #     nn.Linear(query_dim, query_dim//2),
-        #     nn.ReLU(),
-        #     nn.Linear(query_dim//2, pred_len*2),  # 48 for scale + 48 for shift
-        # )
-        # self.pred_len = pred_len
+        self.norm1 = nn.LayerNorm(query_dim)
+        self.norm2 = nn.LayerNorm(query_dim)
+        self.act1 = nn.LeakyReLU()
+        self.dropout = nn.Dropout(0.1)
+        self.out_proj = nn.Linear(query_dim, query_dim)
+        # self.out_proj2 = nn.Linear(query_dim, output_dim)
+        self.mlp = nn.Sequential(nn.Linear(query_dim, pred_len), nn.LeakyReLU())
+        self.film_net = nn.Sequential(
+            nn.Linear(query_dim, query_dim//2),
+            nn.ReLU(),
+            nn.Linear(query_dim//2, pred_len*2),  # 48 for scale + 48 for shift
+        )
+        self.pred_len = pred_len
 
     def forward(self, queries, keys, values, mask=None):
         B, L_q, _ = queries.shape
@@ -160,19 +162,11 @@ class CrossAttentionLayer(nn.Module):
 
 
 class CALayer(nn.Module):
-    def __init__(self,embedding_dim=13,embedding_seq = 26,d_model=512, seq_len=24,text_embedding_dim=12, pred_len=6):
+    def __init__(self,text_embedding_dim=12, pred_len=6):
         super(CALayer, self).__init__()
         self.text_embedding_dim = text_embedding_dim
         self.pred_len = pred_len
-        self.flag = False
-        # ts embedding (32,24,512)로 만들기
-
-        self.pre_emb = nn.Sequential(nn.Conv1d(embedding_seq, seq_len, 1, 1), nn.Linear(embedding_dim, d_model))
-
-        
-        
-        
-        self.coattn = CoAttention(512, self.text_embedding_dim, seq_len)
+        self.coattn = CoAttention(512, self.text_embedding_dim)
         self.ca1 = CrossAttentionLayer(
             query_dim=self.text_embedding_dim,
             kv_dim=self.text_embedding_dim,
@@ -192,38 +186,22 @@ class CALayer(nn.Module):
         self.dropout = nn.Dropout(0.1)
         self.norm = nn.LayerNorm(1)
     
-    # def forward(self, q, k=None, v=None, mask=None, type='ca'):
-    #     if type == 'coattn':
-    #         return self.coattn(q,k,v,mask)
-    #     elif type == 'ca1':
-    #         return self.ca1(q,k,v,mask)
-    #     elif type == 'ca2':
-    #         return self.ca2(q,k,v,mask)
-    #     elif type=='fuse':
-    #         # print(q.shape) # (b, 24, 24)
-    #         a =  self.ca_fusion(q) 
-    #         # print(a.shape) # (b, 1, 24)
-    #         out = self.linear(self.dropout(a)).transpose(1,2)
-    #         out = self.norm(out)
-    #         # print(out.shape) #(b, pred, 1)
-    #         return out
+    def forward(self, q, k=None, v=None, mask=None, type='ca'):
+        if type == 'coattn':
+            return self.coattn(q,k,v,mask)
+        elif type == 'ca1':
+            return self.ca1(q,k,v,mask)
+        elif type == 'ca2':
+            return self.ca2(q,k,v,mask)
+        elif type=='fuse':
+            # print(q.shape) # (b, 24, 24)
+            a =  self.ca_fusion(q) 
+            # print(a.shape) # (b, 1, 24)
+            out = self.linear(self.dropout(a)).transpose(1,2)
+            out = self.norm(out)
+            # print(out.shape) #(b, pred, 1)
+            return out
         
-    def forward(self, prompt_emb, preds_prompt_emb, encoder_emb):
-        prompt_emb = F.normalize(prompt_emb, p=2, dim=2)
-        preds_prompt_emb = F.normalize(preds_prompt_emb, p=2, dim=2)
-        encoder_emb = F.normalize(encoder_emb, p=2, dim=1)
-
-        encoder_emb = self.pre_emb(encoder_emb)
-        # print(encoder_emb.shape, prompt_emb.shape, preds_prompt_emb.shape)
-        
-        coattn_out = self.coattn(prompt_emb, encoder_emb, encoder_emb)
-        ca1 = self.ca1(preds_prompt_emb, coattn_out, coattn_out)
-        ca2 = self.ca2(coattn_out, preds_prompt_emb, preds_prompt_emb)
-        
-        fus = self. ca_fusion(torch.cat((ca1, ca2), dim=-1))
-        out = self.linear(self.dropout(fus)).transpose(1,2)
-        out = self.norm(out)
-        return out
 
 class Exp_Long_Term_Forecast(Exp_Basic):
     def __init__(self, args):
@@ -263,20 +241,8 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             print(f'Total number of parameters: {num_params + num_params_mlp}')
         else:
             self.mlp = None
-        if self.args.model == 'iTransformer':
-            self.ca_layer = CALayer(embedding_dim = self.args.d_model, embedding_seq = 5, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-        elif self.args.model == 'PatchTST':
-            self.ca_layer = CALayer(embedding_dim = self.args.d_model, embedding_seq = self.args.enc_in *4, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-        elif self.args.model == 'Crossformer':
-            self.ca_layer = CALayer(embedding_dim = self.args.d_model, embedding_seq = self.args.enc_in, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-        elif self.args.model == 'DLinear':
-            self.ca_layer = CALayer(embedding_dim = self.args.pred_len, embedding_seq = self.args.enc_in, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-        elif self.args.model == 'FiLM':
-            self.ca_layer = CALayer(embedding_dim = self.args.enc_in, embedding_seq = self.args.seq_len, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-        elif self.args.model == 'Informer': 
-            self.ca_layer = CALayer(embedding_dim = self.args.d_model, embedding_seq = 13, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-        elif self.args.model in ['FEDformer','Autoformer','Informer','Transformer']:
-            self.ca_layer = CALayer(embedding_dim = self.args.d_model, embedding_seq = self.args.seq_len, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
+        
+        self.ca_layer = CALayer(self.text_embedding_dim, self.pred_len).to(self.device)
 
 
         self.language_to_time_series_projection = nn.Sequential(
@@ -531,7 +497,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 self.tokenizer.pad_token = pad_token
 
             for param in self.llm_model.parameters():
-                param.requires_grad = False
+                param.requires_grad = False           # llm freeze 
             self.llm_model=self.llm_model.to(self.device)
         if args.init_method == 'uniform':
             self.weight1 = nn.Embedding(1, self.args.pred_len)
@@ -558,12 +524,12 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
         if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
-            # self.mlp = nn.DataParallel(model, device_ids=self.args.device_ids)
-            # self.ca_layer = nn.DataParallel(model, device_ids=self.args.device_ids)
+            self.mlp = nn.DataParallel(model, device_ids=self.args.device_ids)
+            self.ca_layer = nn.DataParallel(model, device_ids=self.args.device_ids)
         return model
 
     def _get_data(self, flag):
-        data_set, data_loader = data_provider(self.args, flag, self.llm_model, self.tokenizer)
+        data_set, data_loader = data_provider(self.args, flag, self.llm_model, self.tokenizer)   
         return data_set, data_loader
 
     def _select_optimizer(self):
@@ -629,19 +595,22 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
         # CA
         if self.prompt_weight > 0:
+            prompt_emb = F.normalize(prompt_emb, p=2, dim=2) #(b, 24, 12)
+            preds_prompt_emb = F.normalize(prompt_emb, p=2, dim=2)
             encoder_emb = self.model.get_encoder_embedding()
-            # prompt_emb = F.normalize(prompt_emb, p=2, dim=2) #(b, 24, 12)
-            # preds_prompt_emb = F.normalize(preds_prompt_emb, p=2, dim=2)
             
-            # encoder_emb = F.normalize(encoder_emb, p=2, dim=1) # (b, 5, 512)
-            # coattn_out = self.ca_layer(prompt_emb, encoder_emb, encoder_emb, type='coattn') # ts
-            
-            # # print(coattn_out.shape)
-            # ca1 = self.ca_layer(preds_prompt_emb, coattn_out, coattn_out, type='ca1') # txt -> ts
-            # ca2 = self.ca_layer(coattn_out, preds_prompt_emb, preds_prompt_emb, type='ca2') # ts --> txt
-            # # print(ca1.shape, ca2.shape)
-            # fus = self.ca_layer(torch.cat((ca1, ca2), dim=-1), type='fuse')
-            fus = self.ca_layer(prompt_emb, preds_prompt_emb, encoder_emb)
+            if isinstance(encoder_emb, list):
+                # Layer 출력 중 마지막을 골라 쓰거나, torch.stack 후 mean 
+                encoder_emb = encoder_emb[-1]           # (B, seq_len, dim)
+                # 또는: encoder_emb = torch.stack(encoder_emb, dim=0).mean(dim=0)
+
+            encoder_emb = F.normalize(encoder_emb, p=2, dim=1) # (b, 5, 512)
+            coattn_out = self.ca_layer(prompt_emb, encoder_emb, encoder_emb, type='coattn') # ts
+            # print(coattn_out.shape)
+            ca1 = self.ca_layer(preds_prompt_emb, coattn_out, coattn_out, type='ca1') # txt -> ts
+            ca2 = self.ca_layer(coattn_out, preds_prompt_emb, preds_prompt_emb, type='ca2') # ts --> txt
+            # print(ca1.shape, ca2.shape)
+            fus = self.ca_layer(torch.cat((ca1, ca2), dim=-1), type='fuse')
             outputs = outputs + fus
 
         if self.prior_weight > 0:
@@ -753,12 +722,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     scaler.update()
                 else:
                     loss.backward()
-                    # for name, param in self.ca_layer.named_parameters():
-                    #     if param.grad is not None:
-                    #         # print(f"{name}: grad norm = {param.grad.norm().item():.6f}")
-                    #         continue
-                    #     else:
-                    #         print(f"{name}: No gradient")
                     model_optim.step()
                     model_optim_mlp.step()
                     model_optiom_ca.step()
@@ -805,7 +768,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             for i, batch in enumerate(test_loader):
                 batch_text = test_data.get_text(batch[-1])  # index
                 batch_text_flattened = batch_text_flattened = batch_text.reshape(-1).tolist()
-                batch_preds_text_flattened = test_data.get_preds_text(batch[-1]).reshape(-1).tolist() ## preds text 가져와야하ㅡㄴ거 아님..?
+                batch_preds_text_flattened = test_data.get_text(batch[-1]).reshape(-1).tolist()
 
                 if self.Doc2Vec==False:
                     tokenized_output = self.tokenizer(
@@ -912,11 +875,10 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         mae, mse, rmse, mape, mspe = metric(preds, trues)
         print('mse:{}, mae:{}'.format(mse, mae))
         f = open(self.args.save_name, 'a')
-        # f.write(setting + "  \n")
-        f.write(f'{self.args.model}\t{self.args.data_path[:-4]}\t{self.args.llm_model}\t{self.args.seq_len}\t{self.args.label_len}\t{self.args.pred_len}\t{self.args.text_emb}\t{self.args.prior_weight}\t{self.args.prompt_weight}\t')
-        f.write('{}\t{}\t{}\t{}\t{}'.format(mse, mae, rmse, mape, mspe))
+        f.write(setting + "  \n")
+        f.write('mse:{}, mae:{}, rmse:{}, mape:{}, mspe:{}'.format(mse, mae, rmse, mape, mspe))
         f.write('\n')
-        # f.write('\n')
+        f.write('\n')
         f.close()
 
         np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe]))

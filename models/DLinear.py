@@ -53,7 +53,9 @@ class Model(nn.Module):
             self.dropout = nn.Dropout(configs.dropout)
             self.projection = nn.Linear(
                 configs.enc_in * configs.seq_len, configs.num_class)
-
+    def get_encoder_embedding(self):
+        return self.enc_out
+    
     def encoder(self, x):
         seasonal_init, trend_init = self.decompsition(x)
         seasonal_init, trend_init = seasonal_init.permute(
@@ -71,12 +73,17 @@ class Model(nn.Module):
         else:
             seasonal_output = self.Linear_Seasonal(seasonal_init)
             trend_output = self.Linear_Trend(trend_init)
+        # print(f"x shape: {x.shape}\t seasonal_intput shape: {seasonal_init.shape}\t trend_output shape: {trend_output.shape}")
         x = seasonal_output + trend_output
+        
         return x.permute(0, 2, 1)
 
     def forecast(self, x_enc):
         # Encoder
-        return self.encoder(x_enc)
+        enc_out = self.encoder(x_enc)
+        self.enc_out = enc_out.permute(0, 2, 1)  # [B, L, D]
+        # print(self.enc_out.shape)
+        return enc_out
 
     def imputation(self, x_enc):
         # Encoder

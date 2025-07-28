@@ -61,10 +61,10 @@ def data_provider(args, flag, llm_model, tokenizer):
             collate_fn=lambda x: collate_fn(x, max_len=args.seq_len)
         )
         return data_set, data_loader
-    else:
+    else:  # forecasting 
         if args.data == 'm4':
             drop_last = False
-        data_set = Data(
+        data_set = Data(   # custom dataset 
             args = args,
             root_path=args.root_path,
             data_path=args.data_path,

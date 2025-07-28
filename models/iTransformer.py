@@ -47,7 +47,10 @@ class Model(nn.Module):
             self.act = F.gelu
             self.dropout = nn.Dropout(configs.dropout)
             self.projection = nn.Linear(configs.d_model * configs.enc_in, configs.num_class)
-
+            
+    def get_encoder_embedding(self):
+        return self.enc_out
+    
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # Normalization from Non-stationary Transformer
         means = x_enc.mean(1, keepdim=True).detach()
@@ -60,6 +63,7 @@ class Model(nn.Module):
         # Embedding
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
         enc_out, attns = self.encoder(enc_out, attn_mask=None)
+        self.enc_out = enc_out
 
         dec_out = self.projection(enc_out).permute(0, 2, 1)[:, :, :N]
         # De-Normalization from Non-stationary Transformer

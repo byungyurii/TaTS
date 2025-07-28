@@ -1,0 +1,12 @@
+long_term_forecast_data_2025_24_12_fullLLM__iTransformer_custom_ftS_sl24_ll12_pl12_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.1002458855509758, mae:0.2316872626543045, rmse:0.3166162967681885, mape:1.1882377862930298, mspe:40.27872085571289
+
+long_term_forecast_data_2025_24_24_fullLLM__iTransformer_custom_ftS_sl24_ll12_pl24_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.2156064659357071, mae:0.34442445635795593, rmse:0.4643344283103943, mape:1.5526615381240845, mspe:42.419612884521484
+
+long_term_forecast_data_2025_24_36_fullLLM__iTransformer_custom_ftS_sl24_ll12_pl36_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.3391212224960327, mae:0.4330276548862457, rmse:0.5823411345481873, mape:1.9197551012039185, mspe:89.49098205566406
+
+long_term_forecast_data_2025_24_48_fullLLM__iTransformer_custom_ftS_sl24_ll12_pl48_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.4227309823036194, mae:0.5023455619812012, rmse:0.6501776576042175, mape:2.43137264251709, mspe:98.218505859375
+

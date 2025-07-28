@@ -1,0 +1,24 @@
+long_term_forecast_data_2025_24_12_fullLLM__PatchTST_custom_ftS_sl24_ll12_pl12_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.10166728496551514, mae:0.2214023321866989, rmse:0.31885308027267456, mape:0.9928195476531982, mspe:24.63128089904785
+
+long_term_forecast_data_2025_24_24_fullLLM__PatchTST_custom_ftS_sl24_ll12_pl24_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.24425731599330902, mae:0.35605522990226746, rmse:0.494223952293396, mape:1.4727567434310913, mspe:38.296382904052734
+
+long_term_forecast_data_2025_24_12_fullLLM__Crossformer_custom_ftS_sl24_ll12_pl12_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.1472311168909073, mae:0.26427263021469116, rmse:0.38370707631111145, mape:1.0626440048217773, mspe:26.622610092163086
+
+long_term_forecast_data_2025_24_36_fullLLM__PatchTST_custom_ftS_sl24_ll12_pl36_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.36307841539382935, mae:0.4445890188217163, rmse:0.6025598645210266, mape:1.8256964683532715, mspe:64.02090454101562
+
+long_term_forecast_data_2025_24_48_fullLLM__PatchTST_custom_ftS_sl24_ll12_pl48_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.41844332218170166, mae:0.5015120506286621, rmse:0.6468719244003296, mape:2.435798406600952, mspe:98.11050415039062
+
+long_term_forecast_data_2025_24_24_fullLLM__Crossformer_custom_ftS_sl24_ll12_pl24_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.34712278842926025, mae:0.43926504254341125, rmse:0.589171290397644, mape:1.482616901397705, mspe:37.28030014038086
+
+long_term_forecast_data_2025_24_36_fullLLM__Crossformer_custom_ftS_sl24_ll12_pl36_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.4053518772125244, mae:0.49597638845443726, rmse:0.6366724967956543, mape:2.23610782623291, mspe:89.13738250732422
+
+long_term_forecast_data_2025_24_48_fullLLM__Crossformer_custom_ftS_sl24_ll12_pl48_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.5639668703079224, mae:0.6089226603507996, rmse:0.7509772777557373, mape:3.8947696685791016, mspe:355.5316467285156
+

@@ -38,192 +38,8 @@ class MLP(nn.Module):
 warnings.filterwarnings('ignore')
 
 
-class CoAttention(nn.Module):
-    def __init__(self, dim_kv=512, dim_q=12, seq_len=24):
-        super().__init__()
-        self.q_proj = nn.Linear(dim_q, dim_q)  # project k to (b, 24, 12)
-        self.k_proj = nn.Linear(dim_kv, dim_q)  # project k to (b, 5, 12)
-        # self.v_proj = nn.Linear(dim_kv, dim_q)  # project v to (b, 5, 12)
-        self.linear = nn.Linear(seq_len, dim_q)
-
-    def forward(self, q, k, v, mask=None):
-        # q: (b, 24, 12), k: (b, 5, 512), v: (b, 5, 512)
-        b, q_len, dim_q = q.shape
-        _, kv_len, dim_kv = k.shape
-
-        # Project k, v -> (b, 5, 12)
-        q_proj = self.q_proj(q)
-        k_proj = self.k_proj(k)
-        # v_proj = self.v_proj(v)
-
-        # Co-attention
-        qk = torch.bmm(q_proj, k_proj.transpose(1, 2))  # (b, 24, 5)
-        a_q = F.softmax(qk, dim=1)
-        a_k = F.softmax(qk, dim=2)
-        c_q = torch.bmm(a_q, k_proj)  # (b, 24, 12)
-        c_k = torch.bmm(a_k.transpose(1,2), torch.cat((q, c_q), 2)) # (b, 5, dim_q*2)
-        attn = self.linear(c_k.transpose(1,2))  # (b, dim_q, 12)
-        # print(attn.shape)
-            
-        # 논문 co-attention?? 
-        # attn_scores = torch.bmm(q_proj, k_proj.transpose(1,2)) # (b, 24, 5)
-        # attn_probs = F.softmax(attn_scores, dim=-1) # (b, 24, 5)
-        # attn = torch.bmm(attn_probs, v_proj) # (b, 24, 12)
-        # # print(q_proj.shape, k_proj.shape, v_proj.shape)
-     
-        return attn
 
 
-class CrossAttentionLayer(nn.Module):
-    def __init__(self, query_dim, kv_dim, n_heads, output_dim, pred_len):
-        super().__init__()
-        assert query_dim % n_heads == 0, "query_dim must be divisible by n_heads"
-        assert kv_dim % n_heads == 0, "kv_dim must be divisible by n_heads"
-
-        self.n_heads = n_heads
-        self.head_dim_q = query_dim // n_heads
-        self.head_dim_kv = kv_dim // n_heads
-
-        # Q, K, V projection
-        self.q_proj = nn.Linear(query_dim, query_dim)
-        self.k_proj = nn.Linear(kv_dim, query_dim)
-        self.v_proj = nn.Linear(kv_dim, query_dim)
-
-        # Output projection
-        # self.norm1 = nn.LayerNorm(query_dim)
-        # self.norm2 = nn.LayerNorm(query_dim)
-        # self.act1 = nn.LeakyReLU()
-        # self.dropout = nn.Dropout(0.1)
-        # self.out_proj = nn.Linear(query_dim, query_dim)
-        # # self.out_proj2 = nn.Linear(query_dim, output_dim)
-        # self.mlp = nn.Sequential(nn.Linear(query_dim, pred_len), nn.LeakyReLU())
-        # self.film_net = nn.Sequential(
-        #     nn.Linear(query_dim, query_dim//2),
-        #     nn.ReLU(),
-        #     nn.Linear(query_dim//2, pred_len*2),  # 48 for scale + 48 for shift
-        # )
-        # self.pred_len = pred_len
-
-    def forward(self, queries, keys, values, mask=None):
-        B, L_q, _ = queries.shape
-        B, L_kv, _ = keys.shape
-
-        # Project Q, K, V
-        Q = self.q_proj(queries)  # (B, L_q, D_q)
-        K = self.k_proj(keys)     # (B, L_kv, D_q)
-        V = self.v_proj(values)   # (B, L_kv, D_q)
-
-        # Split into heads
-        Q = Q.view(B, L_q, self.n_heads, self.head_dim_q).transpose(1, 2)  # (B, H, L_q, D_hq)
-        K = K.view(B, L_kv, self.n_heads, self.head_dim_q).transpose(1, 2) # (B, H, L_kv, D_hq)
-        V = V.view(B, L_kv, self.n_heads, self.head_dim_q).transpose(1, 2) # (B, H, L_kv, D_hq)
-
-        # Scaled Dot-Product Attention
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.head_dim_q ** 0.5)  # (B, H, L_q, L_kv)
-        if mask is not None:
-            scores = scores.masked_fill(mask == 0, float('-inf'))
-        attn_weights = F.softmax(scores, dim=-1)  # (B, H, L_q, L_kv)
-
-        attn_output = torch.matmul(attn_weights, V)  # (B, H, L_q, D_hq)
-
-        # Merge heads
-        attn_output = attn_output.transpose(1, 2).contiguous()  # (B, L_q, H, D_hq)
-        attn_output = attn_output.view(B, L_q, -1)  # (B, L_q, D_q)
-    
-        # print(f"attn_output, {attn_output.shape}")
-        attn_output = queries + attn_output  # Residual connection
-        
-        
-        
-        # ## 여기서 부터는 output 처리
-        # y = attn_output = self.norm1(attn_output)
-        # y = self.dropout(self.act1(y))
-        # attn_output = self.norm2(attn_output+y)
-        
-        # attn_output = self.out_proj(attn_output)
-        # # print(f"attn_output, {attn_output.shape}") # attn_output, torch.Size([32, head, q_dim])
-        
-
-        # # Final projection
-        # attn_out = attn_output.mean(dim=1)
-        # film_params = self.film_net(attn_out)
-        
-        # scale, shift = film_params[:,:self.pred_len], film_params[:,self.pred_len:]
-        # scale = scale.unsqueeze(-1)
-        # shift = shift.unsqueeze(-1)
-        # # residual = F.interpolate(attn_output.transpose(1,2), size=self.pred_len, mode="linear").transpose(1,2)
-        # residual = self.mlp(attn_output)
-        # residual = residual.permute(0,2,1)[:,:,:1]
-        # # print("attn_output mean:", attn_output.abs().mean().item(), "residual mean:", residual.abs().mean().item())
-
-        return attn_output
-
-
-class CALayer(nn.Module):
-    def __init__(self,embedding_dim=13,embedding_seq = 26,d_model=512, seq_len=24,text_embedding_dim=12, pred_len=6):
-        super(CALayer, self).__init__()
-        self.text_embedding_dim = text_embedding_dim
-        self.pred_len = pred_len
-        self.flag = False
-        # ts embedding (32,24,512)로 만들기
-
-        self.pre_emb = nn.Sequential(nn.Conv1d(embedding_seq, seq_len, 1, 1), nn.Linear(embedding_dim, d_model))
-
-        
-        
-        
-        self.coattn = CoAttention(512, self.text_embedding_dim, seq_len)
-        self.ca1 = CrossAttentionLayer(
-            query_dim=self.text_embedding_dim,
-            kv_dim=self.text_embedding_dim,
-            n_heads=4,
-            output_dim=self.text_embedding_dim,
-            pred_len=self.pred_len
-        )
-        self.ca2 = CrossAttentionLayer(
-            query_dim=self.text_embedding_dim,
-            kv_dim=self.text_embedding_dim,
-            n_heads=4,
-            output_dim=self.text_embedding_dim,
-            pred_len=self.pred_len
-        )
-        self.ca_fusion = nn.Sequential(nn.Conv1d(24, 1, 1,1), nn.LeakyReLU())
-        self.linear = nn.Linear(self.text_embedding_dim*2, self.pred_len)
-        self.dropout = nn.Dropout(0.1)
-        self.norm = nn.LayerNorm(1)
-    
-    # def forward(self, q, k=None, v=None, mask=None, type='ca'):
-    #     if type == 'coattn':
-    #         return self.coattn(q,k,v,mask)
-    #     elif type == 'ca1':
-    #         return self.ca1(q,k,v,mask)
-    #     elif type == 'ca2':
-    #         return self.ca2(q,k,v,mask)
-    #     elif type=='fuse':
-    #         # print(q.shape) # (b, 24, 24)
-    #         a =  self.ca_fusion(q) 
-    #         # print(a.shape) # (b, 1, 24)
-    #         out = self.linear(self.dropout(a)).transpose(1,2)
-    #         out = self.norm(out)
-    #         # print(out.shape) #(b, pred, 1)
-    #         return out
-        
-    def forward(self, prompt_emb, preds_prompt_emb, encoder_emb):
-        prompt_emb = F.normalize(prompt_emb, p=2, dim=2)
-        preds_prompt_emb = F.normalize(preds_prompt_emb, p=2, dim=2)
-        encoder_emb = F.normalize(encoder_emb, p=2, dim=1)
-
-        encoder_emb = self.pre_emb(encoder_emb)
-        # print(encoder_emb.shape, prompt_emb.shape, preds_prompt_emb.shape)
-        
-        coattn_out = self.coattn(prompt_emb, encoder_emb, encoder_emb)
-        ca1 = self.ca1(preds_prompt_emb, coattn_out, coattn_out)
-        ca2 = self.ca2(coattn_out, preds_prompt_emb, preds_prompt_emb)
-        
-        fus = self. ca_fusion(torch.cat((ca1, ca2), dim=-1))
-        out = self.linear(self.dropout(fus)).transpose(1,2)
-        out = self.norm(out)
-        return out
 
 class Exp_Long_Term_Forecast(Exp_Basic):
     def __init__(self, args):
@@ -232,7 +48,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         configs=args
         self.text_path=configs.text_path
         self.prompt_weight=configs.prompt_weight
-        self.prior_weight = configs.prior_weight
         self.attribute="final_sum"
         self.type_tag=configs.type_tag
         self.text_len=configs.text_len
@@ -263,21 +78,9 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             print(f'Total number of parameters: {num_params + num_params_mlp}')
         else:
             self.mlp = None
-        if self.args.model == 'iTransformer':
-            self.ca_layer = CALayer(embedding_dim = self.args.d_model, embedding_seq = 5, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-        elif self.args.model == 'PatchTST':
-            self.ca_layer = CALayer(embedding_dim = self.args.d_model, embedding_seq = self.args.enc_in *4, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-        elif self.args.model == 'Crossformer':
-            self.ca_layer = CALayer(embedding_dim = self.args.d_model, embedding_seq = self.args.enc_in, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-        elif self.args.model == 'DLinear':
-            self.ca_layer = CALayer(embedding_dim = self.args.pred_len, embedding_seq = self.args.enc_in, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-        elif self.args.model == 'FiLM':
-            self.ca_layer = CALayer(embedding_dim = self.args.enc_in, embedding_seq = self.args.seq_len, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-        elif self.args.model == 'Informer': 
-            self.ca_layer = CALayer(embedding_dim = self.args.d_model, embedding_seq = 13, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-        elif self.args.model in ['FEDformer','Autoformer','Informer','Transformer']:
-            self.ca_layer = CALayer(embedding_dim = self.args.d_model, embedding_seq = self.args.seq_len, d_model = self.args.d_model, seq_len = self.args.seq_len, text_embedding_dim = self.text_embedding_dim, pred_len = self.pred_len).to(self.device)
-
+        mlp_sizes2=[self.text_embedding_dim+self.args.pred_len,self.args.pred_len]
+        if mlp_sizes2 is not None:
+            self.mlp_proj = MLP(mlp_sizes2,dropout_rate=0.3)
 
         self.language_to_time_series_projection = nn.Sequential(
             nn.Linear(self.d_llm, 12),
@@ -551,15 +354,14 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             raise ValueError('Unsupported initialization method')
         
         self.mlp=self.mlp.to(self.device)
+        self.mlp_proj=self.mlp_proj.to(self.device)
         self.learning_rate2=1e-2
-        self.learning_rate3=1e-4
+        self.learning_rate3=1e-3
     def _build_model(self):
         model = self.model_dict[self.args.model].Model(self.args).float()
 
         if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
-            # self.mlp = nn.DataParallel(model, device_ids=self.args.device_ids)
-            # self.ca_layer = nn.DataParallel(model, device_ids=self.args.device_ids)
         return model
 
     def _get_data(self, flag):
@@ -572,10 +374,8 @@ class Exp_Long_Term_Forecast(Exp_Basic):
     def _select_optimizer_mlp(self):
         model_optim = optim.Adam(self.mlp.parameters(), lr=self.args.learning_rate2)
         return model_optim
-    def _select_optimizer_ca(self):
-        model_optim = optim.Adam([
-            {"params":self.ca_layer.parameters(), "lr":1e-4}
-        ], lr = self.learning_rate3)
+    def _select_optimizer_proj(self):
+        model_optim = optim.Adam(self.mlp_proj.parameters(), lr=self.args.learning_rate3)
         return model_optim
     def _select_optimizer_weight(self):
         model_optim = optim.Adam([{'params': self.weight1.parameters()},
@@ -584,79 +384,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
     def _select_criterion(self):
         criterion = nn.MSELoss()
         return criterion
-    def run_one_batch(self, batch, data_provider, text_embedding=None, preds_text_embedding=None, prior_y=None, training=False, test=False):
-        batch_x, batch_y, batch_x_mark, batch_y_mark, index = batch
-        batch_x = batch_x.float().to(self.device)
-        batch_y = batch_y.float().to(self.device)
-        batch_x_mark = batch_x_mark.float().to(self.device)
-        batch_y_mark = batch_y_mark.float().to(self.device)
 
-        if prior_y is None:
-            prior_y = torch.from_numpy(data_provider.get_prior_y(index)).float().to(self.device)
-
-        if text_embedding is None:
-            text_embedding = data_provider.get_text_embeddings(index)
-            preds_text_embedding = data_provider.get_preds_text_embeddings(index)
-
-        prompt_emb = self.mlp(text_embedding)
-        preds_prompt_emb = self.mlp(preds_text_embedding)
-
-        # Decoder input
-        dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :])
-        dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).to(self.device)
-
-        # batch_x is [bsz, seq_len, num_vars], prompt_emb is [bsz, seq_len, text_embedding_dim]. concatenate them in the last dimension
-        # batch_x = torch.cat([batch_x, prompt_emb], dim=-1).detach()
-        batch_x = batch_x.detach()
-
-        # dec_inp is [bsz, label_len + pred_len, num_vars], where only label_len is the true data, the rest is 0
-        # text_dec_inp = torch.zeros((self.args.batch_size, self.args.pred_len, self.text_embedding_dim)).to(self.device)
-        # text_dec_inp = torch.cat([prompt_emb[:, :self.args.label_len, :], text_dec_inp], dim=1).float().to(self.device)
-        # dec_inp = torch.cat([dec_inp, text_dec_inp], dim=-1).detach()
-        dec_inp = dec_inp.detach()
-        
-        if self.args.use_amp:
-            with torch.cuda.amp.autocast():
-                outputs = self.model.module(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-                if isinstance(outputs, tuple): outputs = outputs[0]
-        else:
-            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-            if isinstance(outputs, tuple): outputs = outputs[0]
-
-        f_dim = -1 if self.args.features == 'MS' else 0
-        outputs = outputs[:, -self.args.pred_len:, f_dim:]
-        outputs = outputs[:, :, 0].unsqueeze(-1)  # (B, T, 1)
-
-        # CA
-        if self.prompt_weight > 0:
-            encoder_emb = self.model.get_encoder_embedding()
-            # prompt_emb = F.normalize(prompt_emb, p=2, dim=2) #(b, 24, 12)
-            # preds_prompt_emb = F.normalize(preds_prompt_emb, p=2, dim=2)
-            
-            # encoder_emb = F.normalize(encoder_emb, p=2, dim=1) # (b, 5, 512)
-            # coattn_out = self.ca_layer(prompt_emb, encoder_emb, encoder_emb, type='coattn') # ts
-            
-            # # print(coattn_out.shape)
-            # ca1 = self.ca_layer(preds_prompt_emb, coattn_out, coattn_out, type='ca1') # txt -> ts
-            # ca2 = self.ca_layer(coattn_out, preds_prompt_emb, preds_prompt_emb, type='ca2') # ts --> txt
-            # # print(ca1.shape, ca2.shape)
-            # fus = self.ca_layer(torch.cat((ca1, ca2), dim=-1), type='fuse')
-            fus = self.ca_layer(prompt_emb, preds_prompt_emb, encoder_emb)
-            outputs = outputs + fus
-
-        if self.prior_weight > 0:
-            outputs = (1 - self.prior_weight) * outputs + self.prior_weight * prior_y
-
-        true = batch_y[:, -self.args.pred_len:, f_dim:]
-        if test==True:
-            true = true.detach()
-            outputs= outputs.detach()
-            if data_provider.scale and self.args.inverse:
-                outputs = data_provider.inverse_transform(outputs.squeeze(0)).reshape(outputs.shape)
-                true = data_provider.inverse_transform(true.squeeze(0)).reshape(true.shape)
-        return outputs, true
-
-    
     def vali(self, vali_data, vali_loader, criterion, all_metric=False):
         total_loss = []
         if all_metric:
@@ -667,13 +395,52 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             total_mspe = []
         self.model.eval()
         self.mlp.eval()
-        self.ca_layer.eval()
+        self.mlp_proj.eval()
         with torch.no_grad():
-            for i, batch in enumerate(vali_loader):
-                pred, true = self.run_one_batch(batch, vali_data)
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark,index) in enumerate(vali_loader):
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float()
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_y_mark = batch_y_mark.float().to(self.device)
+                prior_y=torch.from_numpy(vali_data.get_prior_y(index)).float().to(self.device)
+                
+                batch_text_embeddings = vali_data.get_text_embeddings(index)
+                if self.args.ts_only:
+                    batch_text_embeddings = torch.zeros_like(batch_text_embeddings).to(self.device)
+                prompt_emb = self.mlp(batch_text_embeddings)
 
-                pred = pred.detach().cpu()
-                true = true.detach().cpu()
+                # decoder input
+                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                # batch_x is [bsz, seq_len, num_vars], prompt_emb is [bsz, seq_len, text_embedding_dim]. concatenate them in the last dimension
+                batch_x = torch.cat([batch_x, prompt_emb], dim=-1)
+
+                # dec_inp is [bsz, label_len + pred_len, num_vars], where only label_len is the true data, the rest is 0
+                text_dec_inp = torch.zeros((self.args.batch_size, self.args.pred_len, self.text_embedding_dim)).to(self.device)
+                text_dec_inp = torch.cat([prompt_emb[:, :self.args.label_len, :], text_dec_inp], dim=1).float().to(self.device)
+                dec_inp = torch.cat([dec_inp, text_dec_inp], dim=-1)
+                # encoder - decoder
+                if self.args.use_amp:
+                    with torch.cuda.amp.autocast():
+                        if self.args.output_attention:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                        else:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                else:
+                    if self.args.output_attention:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                    else:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                f_dim = -1 if self.args.features == 'MS' else 0
+                outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                # TODO: this only works for single variate time series
+                outputs = outputs[:, :, 0].unsqueeze(-1)
+                outputs = (1-self.prompt_weight)*outputs+self.prompt_weight*prior_y
+
+                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+
+                pred = outputs.detach().cpu()
+                true = batch_y.detach().cpu()
 
                 loss = criterion(pred, true)
                 if all_metric:
@@ -688,7 +455,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         total_loss = np.average(total_loss)
         self.model.train()
         self.mlp.train()
-        self.ca_layer.train()
+        self.mlp_proj.train()
         if all_metric:
             total_mae = np.average(total_mae)
             total_mse = np.average(total_mse)
@@ -714,8 +481,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
         model_optim = self._select_optimizer()
         model_optim_mlp = self._select_optimizer_mlp()
-        model_optiom_ca = self._select_optimizer_ca()
-
+        model_optim_proj = self._select_optimizer_proj()
         criterion = self._select_criterion()
 
         if self.args.use_amp:
@@ -727,16 +493,63 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
             self.model.train()
             self.mlp.train()
-            self.ca_layer.train()
+            self.mlp_proj.train()
             epoch_time = time.time()
-            for i, batch in enumerate(train_loader):
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark,index) in enumerate(train_loader):
                 iter_count += 1
                 model_optim.zero_grad()
                 model_optim_mlp.zero_grad()
-                model_optiom_ca.zero_grad()
-                pred, true = self.run_one_batch(batch, train_data, training=True)
+                model_optim_proj.zero_grad()
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
 
-                loss = criterion(pred, true)
+                prior_y=torch.from_numpy(train_data.get_prior_y(index)).float().to(self.device)
+                
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_y_mark = batch_y_mark.float().to(self.device)
+
+                batch_text_embeddings = train_data.get_text_embeddings(index)
+                
+                if self.args.ts_only:
+                    batch_text_embeddings = torch.zeros_like(batch_text_embeddings).to(self.device)
+
+                prompt_emb = self.mlp(batch_text_embeddings) 
+
+                # decoder input
+                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+
+                # batch_x is [bsz, seq_len, num_vars], prompt_emb is [bsz, seq_len, text_embedding_dim]. concatenate them in the last dimension
+                batch_x = torch.cat([batch_x, prompt_emb], dim=-1).detach()  # Time, Text 합쳐지는 부분 !!!! # [batch_size, seq_len, num_vars + text_embedding_dim]
+                #print(f"======= [info] shape of batch_x :{batch_x.shape}")  # [32, 24, 13]
+
+                # dec_inp is [bsz, label_len + pred_len, num_vars], where only label_len is the true data, the rest is 0
+                text_dec_inp = torch.zeros((self.args.batch_size, self.args.pred_len, self.text_embedding_dim)).to(self.device)
+                text_dec_inp = torch.cat([prompt_emb[:, :self.args.label_len, :], text_dec_inp], dim=1).float().to(self.device) 
+                dec_inp = torch.cat([dec_inp, text_dec_inp], dim=-1).detach()  # decoder에도 합쳐서 들어감. 
+
+                # encoder - decoder
+                if self.args.use_amp:
+                    with torch.cuda.amp.autocast():
+                        if self.args.output_attention:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                        else:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                else:
+                    if self.args.output_attention:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                    else:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                f_dim = -1 if self.args.features == 'MS' else 0
+                outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                # TODO: this only works for single variate time series
+                outputs = outputs[:, :, 0].unsqueeze(-1)
+                
+                outputs = (1-self.prompt_weight)*outputs+self.prompt_weight*prior_y
+            
+                
+                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                loss = criterion(outputs, batch_y)
                 train_loss.append(loss.item())
 
                 if (i + 1) % 100 == 0:
@@ -753,15 +566,9 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     scaler.update()
                 else:
                     loss.backward()
-                    # for name, param in self.ca_layer.named_parameters():
-                    #     if param.grad is not None:
-                    #         # print(f"{name}: grad norm = {param.grad.norm().item():.6f}")
-                    #         continue
-                    #     else:
-                    #         print(f"{name}: No gradient")
                     model_optim.step()
                     model_optim_mlp.step()
-                    model_optiom_ca.step()
+                    model_optim_proj.step()
 
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
@@ -770,16 +577,13 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss (MSE): {4:.7f} Test MAE: {5:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss, test_mae))
-            early_stopping(vali_loss, self.model, os.path.join(path, "checkpoint_model.pth"))
-            early_stopping(vali_loss, self.mlp, os.path.join(path, "checkpoint_mlp.pth"))
-            early_stopping(vali_loss, self.ca_layer, os.path.join(path, "checkpoint_ca_layer.pth"))
+            early_stopping(vali_loss, self.model, path)
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
 
-        self.model.load_state_dict(torch.load(os.path.join(path, 'checkpoint_model.pth')))
-        self.mlp.load_state_dict(torch.load(os.path.join(path, 'checkpoint_mlp.pth')))
-        self.ca_layer.load_state_dict(torch.load(os.path.join(path, 'checkpoint_ca_layer.pth')))
+        best_model_path = path + '/' + 'checkpoint.pth'
+        self.model.load_state_dict(torch.load(best_model_path))
 
         return self.model
 
@@ -787,9 +591,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         test_data, test_loader = self._get_data(flag='test')
         if test:
             print('loading model')
-            self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint_model.pth')))
-            self.mlp.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint_mlp.pth')))
-            self.ca_layer.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint_ca_layer.pth')))
+            self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint.pth')))
 
         preds = []
         trues = []
@@ -799,14 +601,18 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
         self.model.eval()
         self.mlp.eval()
-        self.ca_layer.eval()
-
+        self.mlp_proj.eval()
         with torch.no_grad():
-            for i, batch in enumerate(test_loader):
-                batch_text = test_data.get_text(batch[-1])  # index
-                batch_text_flattened = batch_text_flattened = batch_text.reshape(-1).tolist()
-                batch_preds_text_flattened = test_data.get_preds_text(batch[-1]).reshape(-1).tolist() ## preds text 가져와야하ㅡㄴ거 아님..?
+            for i, (batch_x, batch_y, batch_x_mark, batch_y_mark,index) in enumerate(test_loader):
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
+                prior_y=torch.from_numpy(test_data.get_prior_y(index)).float().to(self.device)
+                
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_y_mark = batch_y_mark.float().to(self.device)
 
+                batch_text=test_data.get_text(index)
+                batch_text_flattened = batch_text_flattened = batch_text.reshape(-1).tolist()
                 if self.Doc2Vec==False:
                     tokenized_output = self.tokenizer(
                         batch_text_flattened,
@@ -819,28 +625,17 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     input_ids = tokenized_output['input_ids'].view(self.args.batch_size, self.args.seq_len, language_max_len).to(self.device)
                     attn_mask = tokenized_output['attention_mask'].view(self.args.batch_size, self.args.seq_len, language_max_len).to(self.device)
                     prompt_embeddings = self.llm_model.get_input_embeddings()(input_ids)
-                    
-                    tokenized_output = self.tokenizer(
-                        batch_preds_text_flattened,
-                        return_tensors="pt",
-                        padding=True,
-                        truncation=True,
-                        max_length=256
-                    )
-                    language_max_len = tokenized_output['input_ids'].shape[1]
-                    input_ids = tokenized_output['input_ids'].view(self.args.batch_size, self.args.seq_len, language_max_len).to(self.device)
-                    attn_mask = tokenized_output['attention_mask'].view(self.args.batch_size, self.args.seq_len, language_max_len).to(self.device)
-                    preds_prompt_embeddings = self.llm_model.get_input_embeddings()(input_ids)
 
                 else:
                     prompt = batch_text
                     prompt_embeddings = torch.tensor([self.text_model.infer_vector(text) for text in prompt]).to(self.device)
                 if self.use_fullmodel:
-                    prompt_emb =self.llm_model(inputs_embeds=prompt_embeddings).last_hidden_state
-                    preds_prompt_emb = self.llm_model(inputs_embeds=preds_prompt_embeddings).last_hidden_state
+                    print('=====using full llm model=====')
+                    prompt_emb =self.llm_model(inputs_embeds=last_hidden).last_hidden_state
+
                 else:
+                    print('=====using llm encoder only =====')
                     prompt_emb=prompt_embeddings
-                    preds_prompt_emb = preds_prompt_embeddings
 
                 if self.Doc2Vec == False:
                     # Expand attn_mask to match prompt_emb dimensions
@@ -852,11 +647,6 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                         valid_counts = expanded_mask.sum(dim=2, keepdim=True).clamp(min=1)
                         pooled_emb = masked_emb.sum(dim=2) / valid_counts.squeeze(2)
                         prompt_emb = pooled_emb
-                        
-                        masked_emb = preds_prompt_emb * expanded_mask
-                        valid_counts = expanded_mask.sum(dim=2, keepdim=True).clamp(min=1)
-                        pooled_emb = masked_emb.sum(dim=2) / valid_counts.squeeze(2)
-                        preds_prompt_emb = pooled_emb
 
                     elif self.pool_type == "max":
                         # Mask the embeddings by setting padded tokens to a very small value
@@ -871,20 +661,59 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                         prompt_emb = pooled_emb
                 else:
                     prompt_emb = prompt_emb
-                    preds_prompt_emb = preds_prompt_emb
-                # prompt_emb = self.mlp(prompt_emb)
+                
+                if self.args.ts_only:
+                    prompt_emb = torch.zeros_like(prompt_emb).to(self.device)
+                    
+                prompt_emb = self.mlp(prompt_emb)  
 
-                prior_y = torch.from_numpy(test_data.get_prior_y(batch[-1])).float().to(self.device)
+                # decoder input
+                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
+                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
-                pred, true = self.run_one_batch(batch, test_data, text_embedding=prompt_emb, preds_text_embedding=preds_prompt_emb,prior_y=prior_y, test=True)
+                # batch_x is [bsz, seq_len, num_vars], prompt_emb is [bsz, seq_len, text_embedding_dim]. concatenate them in the last dimension
+                batch_x = torch.cat([batch_x, prompt_emb], dim=-1).detach()
 
-                pred = pred.detach().cpu().numpy()
-                true = true.detach().cpu().numpy()
+                # dec_inp is [bsz, label_len + pred_len, num_vars], where only label_len is the true data, the rest is 0
+                text_dec_inp = torch.zeros((self.args.batch_size, self.args.pred_len, self.text_embedding_dim)).to(self.device)
+                text_dec_inp = torch.cat([prompt_emb[:, :self.args.label_len, :], text_dec_inp], dim=1).float().to(self.device)
+                dec_inp = torch.cat([dec_inp, text_dec_inp], dim=-1).detach()
+                # encoder - decoder
+                if self.args.use_amp:
+                    with torch.cuda.amp.autocast():
+                        if self.args.output_attention:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                        else:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                else:
+                    if self.args.output_attention:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                    else:
+                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                f_dim = -1 if self.args.features == 'MS' else 0
+                outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                # TODO: this only works for single variate time series
+                outputs = outputs[:, :, 0].unsqueeze(-1)
+                outputs = (1-self.prompt_weight)*outputs+self.prompt_weight*prior_y
+                
+                batch_y = batch_y[:, -self.args.pred_len:, :].to(self.device)
+                outputs = outputs.detach().cpu().numpy()
+                batch_y = batch_y.detach().cpu().numpy()
+                if test_data.scale and self.args.inverse:
+                    shape = outputs.shape
+                    outputs = test_data.inverse_transform(outputs.squeeze(0)).reshape(shape)
+                    batch_y = test_data.inverse_transform(batch_y.squeeze(0)).reshape(shape)
+        
+                outputs = outputs[:, :, f_dim:]
+                batch_y = batch_y[:, :, f_dim:]
+
+                pred = outputs
+                true = batch_y
 
                 preds.append(pred)
                 trues.append(true)
                 if i % 20 == 0:
-                    input = batch[0].detach().cpu().numpy() # batch_x
+                    input = batch_x.detach().cpu().numpy()
                     if test_data.scale and self.args.inverse:
                         shape = input.shape
                         input = test_data.inverse_transform(input.squeeze(0)).reshape(shape)
@@ -912,11 +741,10 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         mae, mse, rmse, mape, mspe = metric(preds, trues)
         print('mse:{}, mae:{}'.format(mse, mae))
         f = open(self.args.save_name, 'a')
-        # f.write(setting + "  \n")
-        f.write(f'{self.args.model}\t{self.args.data_path[:-4]}\t{self.args.llm_model}\t{self.args.seq_len}\t{self.args.label_len}\t{self.args.pred_len}\t{self.args.text_emb}\t{self.args.prior_weight}\t{self.args.prompt_weight}\t')
-        f.write('{}\t{}\t{}\t{}\t{}'.format(mse, mae, rmse, mape, mspe))
+        f.write(setting + "  \n")
+        f.write('mse:{}, mae:{}, rmse:{}, mape:{}, mspe:{}'.format(mse, mae, rmse, mape, mspe))
         f.write('\n')
-        # f.write('\n')
+        f.write('\n')
         f.close()
 
         np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe]))

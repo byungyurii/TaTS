@@ -1,4 +1,3 @@
-# 규리언니 코드
 import os
 import numpy as np
 import pandas as pd
@@ -22,7 +21,7 @@ warnings.filterwarnings('ignore')
 class Dataset_Custom(Dataset):
     def __init__(self, args, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
-                 target='OT', scale=True, timeenc=0, freq='h', seasonal_patterns=None, llm_model=None, tokenizer=None, use_pred = True):
+                 target='OT', scale=True, timeenc=0, freq='h', seasonal_patterns=None, llm_model=None, tokenizer=None):
         # size [seq_len, label_len, pred_len]
         self.args = args
         # info
@@ -49,10 +48,8 @@ class Dataset_Custom(Dataset):
         self.data_path = data_path
         self.llm_model = llm_model
         self.tokenizer = tokenizer
-        self.use_pred = use_pred
         self.__read_data__()
         self.tot_len = len(self.data_x) - self.seq_len - self.pred_len + 1
-        
 
     def __read_data__(self):
         self.scaler = StandardScaler()
@@ -71,28 +68,6 @@ class Dataset_Custom(Dataset):
         else:
             print("!!!!!!!!!!!!Using output of closed source llm and Bert as encoder!!!!!!!!!!!!!!!")
             text_name="Final_Output"
-            
-
-        # exclude_cols = {'date', 'start_date', 'end_date', 'fact', 'preds', 'prior_history_avg', 'OT'}
-        # # 자동으로 수치형 컬럼만 선택 + 제외 리스트에서 제거
-        # candidate_cols = [col for col in cols
-        #                 if pd.api.types.is_numeric_dtype(df_raw[col]) and col not in exclude_cols]
-
-        # delta_cols = []
-
-        # for col in candidate_cols:
-        #     delta_col = f'{col}_delta'
-        #     df_raw[delta_col] = (-df_raw[col].diff(-1)).fillna(0)
-        #     df_raw[delta_col] = df_raw[delta_col].apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
-        #     delta_cols.append(delta_col)
-
-        # # 최종 사용될 컬럼: 원래 수치형 + delta
-        # print(cols)
-        # cols = cols + delta_cols
-
-
-        # print(cols)
-        
         df_raw = df_raw[['date'] + cols + [self.target]+['prior_history_avg']+['start_date']+['end_date']]
         num_train = int(len(df_raw) * 0.7)
         num_test = int(len(df_raw) * 0.2)
@@ -103,7 +78,13 @@ class Dataset_Custom(Dataset):
         border2 = border2s[self.set_type]
 
         if self.features == 'M' or self.features == 'MS':
-            cols_data = df_raw.columns[1:]
+            # cols_data = df_raw.columns[1:]
+            # df_data = df_raw[cols_data]
+            
+            # 명시적으로 제외할 columns
+            exclude_cols = ['prior_history_avg', 'prior_history_std', 'fact', 'preds', 'start_date', 'end_date']
+            # cols + target 만 포함시키고, exclude_cols 에 없는 것만 포함
+            cols_data = [col for col in (cols + [self.target]) if col not in exclude_cols]
             df_data = df_raw[cols_data]
         elif self.features == 'S':
             df_data = df_raw[[self.target]]
@@ -111,7 +92,7 @@ class Dataset_Custom(Dataset):
 
         if self.scale:
             train_data = df_data[border1s[0]:border2s[0]]
-            self.scaler.fit(train_data.values)
+            self.scaler.fit(train_data.values) # features m으로 하면 여기서 에러 남. 
             data = self.scaler.transform(df_data.values)
             data_prior = self.scaler.transform(df_data_prior.values[:,-1].reshape(-1, 1))
         else:
@@ -138,8 +119,7 @@ class Dataset_Custom(Dataset):
         self.date=df_raw[['date']][border1:border2].values
         self.start_date=df_raw[['start_date']][border1:border2].values
         self.end_date=df_raw[['end_date']][border1:border2].values
-        self.text=df_raw[[text_name]][border1:border2].values
-        self.preds = df_raw[["preds"]][border1:border2].values
+        self.text=df_raw[[text_name]][border1:border2].values  # fact 열만 사용 
         # self.text[0]
         # array(['Available facts are as follows: 1997-09-22: Zanamivir, a neuraminidase inhibitor, has been shown to be safe and effective in treating adults with influenza A or B virus infections when administered directly to the respiratory tract. 
         # [Source: pubmed.ncbi.nlm.nih.gov] 1997-09-15: Objective facts about the Pulic Health and FLU situation:In 1997, studies were conducted on the reactivation of antigen-specific CD8+ memory T cells after influenza virus infection, and on 
@@ -182,7 +162,7 @@ class Dataset_Custom(Dataset):
         language_max_len = tokenized_output['input_ids'].shape[1]
         self.input_ids = tokenized_output['input_ids'].to(self.llm_model.device)
         self.attn_mask = tokenized_output['attention_mask'].to(self.llm_model.device)
-        text_embeddings = self.llm_model.get_input_embeddings()(self.input_ids)    # fact texts
+        text_embeddings = self.llm_model.get_input_embeddings()(self.input_ids)
         
         expanded_mask = self.attn_mask.unsqueeze(-1).expand_as(text_embeddings)
 
@@ -204,33 +184,8 @@ class Dataset_Custom(Dataset):
             masked_emb = text_embeddings.masked_fill(expanded_mask == 0, float('inf'))
             pooled_emb, _ = masked_emb.min(dim=1)
             text_embeddings = pooled_emb
-        
-        
-        preds_flattened = self.preds.reshape(-1).tolist()
-        preds_flattened = [x if isinstance(x, str) else "no prediction" for x in preds_flattened]
-
-
-        tokenized_preds = self.tokenizer(
-            preds_flattened,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=256
-        )
-        preds_embeddings = self.llm_model.get_input_embeddings()(tokenized_preds['input_ids'].to(self.llm_model.device))   # preds text 
-        expanded_preds_mask = tokenized_preds['attention_mask'].unsqueeze(-1).expand_as(preds_embeddings).to(self.llm_model.device)
-        masked_emb = preds_embeddings * expanded_preds_mask
-        valid_counts = expanded_preds_mask.sum(dim=1, keepdim=True).clamp(min=1)
-        pooled_emb = masked_emb.sum(dim=1) / valid_counts.squeeze(1)
-        preds_embeddings = pooled_emb
-        # print(text_embeddings.shape, preds_embeddings.shape)
-        # full_text_embeddings = torch.concat((text_embeddings, preds_embeddings), dim=0)
-        # print(full_text_embeddings.shape)
 
         self.text_embeddings = text_embeddings
-        self.preds_text_embeddings = preds_embeddings
-
-        # self.text_embeddings = text_embeddings
 
     def get_prior_y(self, indices):
         if isinstance(indices, torch.Tensor):
@@ -262,26 +217,6 @@ class Dataset_Custom(Dataset):
         s_ends = s_begins + self.seq_len
         text=np.array([self.text[s_end - self.seq_len: s_end] for s_end in s_ends])
         return text
-    
-    def get_preds_text(self, indices):
-        if isinstance(indices, torch.Tensor):
-            indices = indices.numpy()
-
-        s_begins = indices % self.tot_len
-        s_ends = s_begins + self.seq_len
-        text=np.array([self.preds[s_end - self.seq_len: s_end] for s_end in s_ends])
-        return text
-    
-    def get_preds_text_embeddings(self, indices):
-        if isinstance(indices, torch.Tensor):
-            indices = indices.numpy()
-
-        s_begins = indices % self.tot_len
-        s_ends = s_begins + self.seq_len
-        bsz = len(s_begins)
-        # return tensor
-        text_embeddings = torch.cat([self.preds_text_embeddings[s_end - self.seq_len: s_end] for s_end in s_ends], dim=0).view(bsz, self.seq_len, -1)
-        return text_embeddings
     
     def get_text_embeddings(self, indices):
         if isinstance(indices, torch.Tensor):

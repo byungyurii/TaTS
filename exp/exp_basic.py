@@ -1,13 +1,21 @@
 import os
 import torch
-from models import iTransformer
+from models import iTransformer, PatchTST, Crossformer, DLinear, FEDformer, FiLM, Autoformer, Informer, Transformer
 
 
 class Exp_Basic(object):
     def __init__(self, args):
         self.args = args
         self.model_dict = {
-            'iTransformer': iTransformer
+            'iTransformer': iTransformer,
+            'PatchTST': PatchTST,
+            'Crossformer': Crossformer, 
+            'DLinear' : DLinear, 
+            'FEDformer' : FEDformer, 
+            'FiLM' : FiLM, 
+            'Autoformer' : Autoformer, 
+            'Informer' : Informer, 
+            'Transformer' : Transformer
         }
         self.device = self._acquire_device()
         self.model = self._build_model().to(self.device)

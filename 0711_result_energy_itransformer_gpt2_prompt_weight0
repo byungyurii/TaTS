@@ -1,0 +1,24 @@
+long_term_forecast_data_2025_24_12_fullLLM__iTransformer_custom_ftS_sl24_ll12_pl12_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.10349101573228836, mae:0.23136864602565765, rmse:0.32170018553733826, mape:1.097019076347351, mspe:36.53446578979492
+
+long_term_forecast_data_2025_24_24_fullLLM__iTransformer_custom_ftS_sl24_ll12_pl24_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.21099376678466797, mae:0.3390761911869049, rmse:0.45934057235717773, mape:1.559674859046936, mspe:42.82412338256836
+
+long_term_forecast_data_2025_24_36_fullLLM__iTransformer_custom_ftS_sl24_ll12_pl36_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.30866098403930664, mae:0.416005402803421, rmse:0.5555726885795593, mape:1.8686487674713135, mspe:65.90950775146484
+
+long_term_forecast_data_2025_24_48_fullLLM__iTransformer_custom_ftS_sl24_ll12_pl48_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.4221559762954712, mae:0.5012943148612976, rmse:0.6497353315353394, mape:2.4100193977355957, mspe:95.49932861328125
+
+long_term_forecast_data_2025_24_12_fullLLM__iTransformer_custom_ftS_sl24_ll12_pl12_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.10135915875434875, mae:0.22665773332118988, rmse:0.3183695375919342, mape:1.1093862056732178, mspe:33.43069076538086
+
+long_term_forecast_data_2025_24_24_fullLLM__iTransformer_custom_ftS_sl24_ll12_pl24_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.2170829325914383, mae:0.34544381499290466, rmse:0.4659215807914734, mape:1.568596363067627, mspe:43.25465393066406
+
+long_term_forecast_data_2025_24_36_fullLLM__iTransformer_custom_ftS_sl24_ll12_pl36_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.34167012572288513, mae:0.4352756440639496, rmse:0.5845255851745605, mape:1.9863431453704834, mspe:77.0816421508789
+
+long_term_forecast_data_2025_24_48_fullLLM__iTransformer_custom_ftS_sl24_ll12_pl48_dm512_nh8_el2_dl1_df2048_expand2_dc4_fc1_ebtimeF_dtTrue_pw0.0_Exp_0  
+mse:0.4221559762954712, mae:0.5012943148612976, rmse:0.6497353315353394, mape:2.4100193977355957, mspe:95.49932861328125
+

@@ -1,22 +1,21 @@
-## TaTS ####
+all_models=("Autoformer" "Informer" "Transformer")
 
-all_models=("PatchTST")
-
-GPU=5
+GPU=4
 
 root_path=./data
 
 seeds=(2025)
 
-#datasets=("Energy")
-datasets=("Economy")
+datasets=("Environment")
 
 current_dir=$(pwd)
 
-prior_weight=0
+prior_weight=0 
+prompt_weight=0     #unimodal 돌릴 때 0, multimodal 1 
 text_emb=12
 #pred_lengths=(12 24 36 48)
-pred_lengths=(6 8 10 12)
+#pred_lengths=(6 8 10 12)
+pred_lengths=(48 96 192 336)
 
 for seed in "${seeds[@]}"
 do
@@ -46,14 +45,14 @@ do
                     --des Exp \
                     --seed $seed \
                     --prior_weight $prior_weight \
-                    --save_name tats_economy_gpt2 \
+                    --save_name unimodal_0724_environment_gpt2_all_models \
+                    --prompt_weight $prompt_weight \
                     --llm_model GPT2 \
                     --huggingface_token NA \
-                    --train_epochs 50 \
-                    --patience 20 \
+                    --train_epochs 100 \
+                    --patience 60 \
                     --features S \
-                    --use_fullmodel 0 \
-                    --tats
+                    --use_fullmodel 0 
             done
         done
     done
