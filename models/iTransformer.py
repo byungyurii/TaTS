@@ -47,8 +47,9 @@ class Model(nn.Module):
             self.act = F.gelu
             self.dropout = nn.Dropout(configs.dropout)
             self.projection = nn.Linear(configs.d_model * configs.enc_in, configs.num_class)
-
-    def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
+    def get_encoder_embedding(self):
+        return self.enc_out
+    def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec, proj=False):
         # Normalization from Non-stationary Transformer
         means = x_enc.mean(1, keepdim=True).detach()
         x_enc = x_enc - means
@@ -56,15 +57,23 @@ class Model(nn.Module):
         x_enc /= stdev
 
         _, _, N = x_enc.shape
+        
 
         # Embedding
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
         enc_out, attns = self.encoder(enc_out, attn_mask=None)
+        self.enc_out = enc_out #(B, 5+txt_emb_dim, 512)
+         
 
-        dec_out = self.projection(enc_out).permute(0, 2, 1)[:, :, :N]
+        dec_out = self.projection(enc_out)
+        # print(dec_out.shape, N) # (32, 5, 48), 1
+        # print(f"x_enc shape: {x_enc.shape}\t enc_out shape: {enc_out.shape}\t dec_out shape: {dec_out.shape}") 
+        dec_out = dec_out.permute(0, 2, 1)[:, :, :N]
         # De-Normalization from Non-stationary Transformer
         dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
         dec_out = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        if proj == True:
+            return enc_out, dec_out
         return dec_out
 
     def imputation(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask):
@@ -117,9 +126,12 @@ class Model(nn.Module):
         output = self.projection(output)  # (batch_size, num_classes)
         return output
 
-    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
+    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None, proj=False):
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
-            dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec)
+            if proj == True:
+                emb, dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec, proj=proj)
+                return emb, dec_out[:, -self.pred_len:, :]  # [B, L, D]
+            dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec, proj=proj)
             return dec_out[:, -self.pred_len:, :]  # [B, L, D]
         if self.task_name == 'imputation':
             dec_out = self.imputation(x_enc, x_mark_enc, x_dec, x_mark_dec, mask)
@@ -131,3 +143,4 @@ class Model(nn.Module):
             dec_out = self.classification(x_enc, x_mark_enc)
             return dec_out  # [B, N]
         return None
+    

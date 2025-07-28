@@ -1,4 +1,4 @@
-from data_provider.data_loader import Dataset_Custom, Dataset_M4, PSMSegLoader, \
+from data_provider.data_loader_backup import Dataset_Custom, Dataset_M4, PSMSegLoader, \
     MSLSegLoader, SMAPSegLoader, SMDSegLoader, SWATSegLoader, UEAloader
 from data_provider.uea import collate_fn
 from torch.utils.data import DataLoader
@@ -61,10 +61,10 @@ def data_provider(args, flag, llm_model, tokenizer):
             collate_fn=lambda x: collate_fn(x, max_len=args.seq_len)
         )
         return data_set, data_loader
-    else:  # forecasting 
+    else:
         if args.data == 'm4':
             drop_last = False
-        data_set = Data(   # custom dataset 
+        data_set = Data(
             args = args,
             root_path=args.root_path,
             data_path=args.data_path,
@@ -86,4 +86,3 @@ def data_provider(args, flag, llm_model, tokenizer):
             num_workers=args.num_workers,
             drop_last=drop_last)
         return data_set, data_loader
-    

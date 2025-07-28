@@ -130,15 +130,19 @@ class Model(nn.Module):
             self.dropout = nn.Dropout(configs.dropout)
             self.projection = nn.Linear(
                 configs.enc_in * configs.seq_len, configs.num_class)
-
+    def get_encoder_embedding(self):
+        return self.enc_out
     def forecast(self, x_enc, x_mark_enc, x_dec_true, x_mark_dec):
         # Normalization from Non-stationary Transformer
+        input = x_enc
         means = x_enc.mean(1, keepdim=True).detach()
         x_enc = x_enc - means
         stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5).detach()
         x_enc /= stdev
 
         x_enc = x_enc * self.affine_weight + self.affine_bias
+        self.enc_out = x_enc
+        # print(f"x_enc shape: {input.shape}, enc_out shape: {self.enc_out.shape}")
         x_decs = []
         jump_dist = 0
         for i in range(0, len(self.multiscale) * len(self.window_size)):
@@ -268,3 +272,4 @@ class Model(nn.Module):
             dec_out = self.classification(x_enc, x_mark_enc)
             return dec_out  # [B, N]
         return None
+    

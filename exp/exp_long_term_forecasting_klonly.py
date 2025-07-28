@@ -158,21 +158,80 @@ class CrossAttentionLayer(nn.Module):
 
         return attn_output
 
+# def kl_normal(mu_q, logvar_q, mu_p, logvar_p):
+#     # closed-form KL(N(q)||N(p))
+#     # sum over 차원, mean over 배치
+#     var_q = logvar_q.exp()
+#     var_p = logvar_p.exp()
+#     kld = 0.5 * ((var_q / var_p) + ((mu_p - mu_q).pow(2) / var_p) - 1 + (logvar_p - logvar_q))
+#     return kld.sum(-1).mean()
+
+def kl_normal(mu_q, logvar_q, mu_p, logvar_p):
+    # KL(q || p)
+    # 0.5 * sum( log(sigma_p^2/sigma_q^2) + (sigma_q^2 + (mu_q-mu_p)^2)/sigma_p^2 - 1 )
+    var_q = logvar_q.exp()
+    var_p = logvar_p.exp()
+    term1 = (logvar_p - logvar_q)
+    term2 = (var_q + (mu_q - mu_p).pow(2)) / var_p
+    return 0.5 * torch.sum(term1 + term2 - 1, dim=-1).mean()
+
+class PrivatePriorNetwork(nn.Module):
+    def __init__(self, input_dim, hidden_dim, latent_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, latent_dim * 2)  # [mu, logvar]
+        )
+
+    def forward(self, x):
+        h = self.net(x)
+        mu, logvar = h.chunk(2, dim=-1)
+        return mu, logvar
+    
+# Approximate mutual information minimization via covariance penalty
+def latent_mi_loss(z):
+    # z: [B, D]
+    B, D = z.size()
+    z_centered = z - z.mean(dim=0, keepdim=True)
+    cov = (z_centered.t() @ z_centered) / (B - 1)
+    # zero diagonal
+    diag = torch.diag(torch.diag(cov))
+    off_diag = cov - diag
+    # penalty is sum of squared off-diagonal
+    return (off_diag ** 2).sum()
 
 class CALayer(nn.Module):
-    def __init__(self,embedding_dim=13,embedding_seq = 26,d_model=512, seq_len=24,text_embedding_dim=12, pred_len=6):
+    def __init__(self,embedding_dim=13,embedding_seq = 26,d_model=512, seq_len=24,text_embedding_dim=12, pred_len=6, prior_hidden_dim=64):
         super(CALayer, self).__init__()
         self.text_embedding_dim = text_embedding_dim
         self.pred_len = pred_len
         self.flag = False
-        # ts embedding (32,24,512)로 만들기
 
         self.pre_emb = nn.Sequential(nn.Conv1d(embedding_seq, seq_len, 1, 1), nn.Linear(embedding_dim, d_model))
 
+        # self.mu_ts = nn.Linear(d_model, text_embedding_dim)
+        # self.logvar_ts = nn.Linear(d_model, text_embedding_dim)
+        # self.mu_tf = nn.Linear(text_embedding_dim, text_embedding_dim)
+        # self.logvar_tf = nn.Linear(text_embedding_dim, text_embedding_dim)
+        # self.mu_tp = nn.Linear(text_embedding_dim, text_embedding_dim)
+        # self.logvar_tp = nn.Linear(text_embedding_dim, text_embedding_dim)
+
+        # posterior parameter layers (q) for TF and TP
+        self.mu_tf = nn.Linear(text_embedding_dim, text_embedding_dim)
+        self.logvar_tf = nn.Linear(text_embedding_dim, text_embedding_dim)
+        self.mu_tp = nn.Linear(text_embedding_dim, text_embedding_dim)
+        self.logvar_tp = nn.Linear(text_embedding_dim, text_embedding_dim)
+
+        # Private Prior Networks (p) for TF and TP
+        self.prior_tf = PrivatePriorNetwork(input_dim=d_model,
+                                            hidden_dim=prior_hidden_dim,
+                                            latent_dim=text_embedding_dim)
+        self.prior_tp = PrivatePriorNetwork(input_dim=text_embedding_dim,
+                                            hidden_dim=prior_hidden_dim,
+                                            latent_dim=text_embedding_dim)
         
-        
-        
-        self.coattn = CoAttention(512, self.text_embedding_dim, seq_len)
+        self.coattn = CoAttention(d_model, self.text_embedding_dim, seq_len)
         self.ca1 = CrossAttentionLayer(
             query_dim=self.text_embedding_dim,
             kv_dim=self.text_embedding_dim,
@@ -187,26 +246,15 @@ class CALayer(nn.Module):
             output_dim=self.text_embedding_dim,
             pred_len=self.pred_len
         )
-        self.ca_fusion = nn.Sequential(nn.Conv1d(24, 1, 1,1), nn.LeakyReLU())
+        self.ca_fusion = nn.Sequential(nn.Conv1d(seq_len, 1, 1, 1), nn.LeakyReLU())
         self.linear = nn.Linear(self.text_embedding_dim*2, self.pred_len)
         self.dropout = nn.Dropout(0.1)
         self.norm = nn.LayerNorm(1)
     
-    # def forward(self, q, k=None, v=None, mask=None, type='ca'):
-    #     if type == 'coattn':
-    #         return self.coattn(q,k,v,mask)
-    #     elif type == 'ca1':
-    #         return self.ca1(q,k,v,mask)
-    #     elif type == 'ca2':
-    #         return self.ca2(q,k,v,mask)
-    #     elif type=='fuse':
-    #         # print(q.shape) # (b, 24, 24)
-    #         a =  self.ca_fusion(q) 
-    #         # print(a.shape) # (b, 1, 24)
-    #         out = self.linear(self.dropout(a)).transpose(1,2)
-    #         out = self.norm(out)
-    #         # print(out.shape) #(b, pred, 1)
-    #         return out
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
         
     def forward(self, prompt_emb, preds_prompt_emb, encoder_emb):
         prompt_emb = F.normalize(prompt_emb, p=2, dim=2)
@@ -214,16 +262,40 @@ class CALayer(nn.Module):
         encoder_emb = F.normalize(encoder_emb, p=2, dim=1)
 
         encoder_emb = self.pre_emb(encoder_emb)
-        # print(encoder_emb.shape, prompt_emb.shape, preds_prompt_emb.shape)
-        
+
         coattn_out = self.coattn(prompt_emb, encoder_emb, encoder_emb)
         ca1 = self.ca1(preds_prompt_emb, coattn_out, coattn_out)
         ca2 = self.ca2(coattn_out, preds_prompt_emb, preds_prompt_emb)
+
+        # --- KL TF: align TS -> Fact latent distribution ---
+        # compute TS context for prior
+        h_ts = encoder_emb.mean(dim=1)
+        # posterior q(z_fact | fact)
+        h_f = prompt_emb.mean(dim=1)
+        mu_f, logv_f = self.mu_tf(h_f), self.logvar_tf(h_f)
+        z_f = self.reparameterize(mu_f, logv_f)
+        # prior p(z_fact | ts)
+        mu_f_prior, logv_f_prior = self.prior_tf(h_ts)
+        L_TF = kl_normal(mu_f, logv_f, mu_f_prior, logv_f_prior)
+
+        # --- KL TP: align CoAtt -> Pred latent distribution ---
+        # posterior q(z_pred | pred)
+        h_p = preds_prompt_emb.mean(dim=1)
+        mu_p, logv_p = self.mu_tp(h_p), self.logvar_tp(h_p)
+        z_p = self.reparameterize(mu_p, logv_p)
+        # prior p(z_pred | coattn_out)
+        h_c = coattn_out.mean(dim=1)
+        mu_p_prior, logv_p_prior = self.prior_tp(h_c)
+        L_TP = kl_normal(mu_p, logv_p, mu_p_prior, logv_p_prior)
+
+        # --- MI Regularization for latent disentanglement ---
+        MI_loss_f = latent_mi_loss(z_f)
+        MI_loss_p = latent_mi_loss(z_p)
         
         fus = self. ca_fusion(torch.cat((ca1, ca2), dim=-1))
         out = self.linear(self.dropout(fus)).transpose(1,2)
         out = self.norm(out)
-        return out
+        return out, L_TF, L_TP, MI_loss_f, MI_loss_p
 
 class Exp_Long_Term_Forecast(Exp_Basic):
     def __init__(self, args):
@@ -233,6 +305,10 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         self.text_path=configs.text_path
         self.prompt_weight=configs.prompt_weight
         self.prior_weight = configs.prior_weight
+
+        self.nce_weight = configs.nce_weight
+        self.nce_tau = getattr(args, 'nce_tau', 0.07)
+
         self.attribute="final_sum"
         self.type_tag=configs.type_tag
         self.text_len=configs.text_len
@@ -553,6 +629,20 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         self.mlp=self.mlp.to(self.device)
         self.learning_rate2=1e-2
         self.learning_rate3=1e-4
+
+    def _info_nce_loss(self, z_ts, z_txt, tau=None):
+        if tau is None:
+            tau = self.nce_tau
+        z_ts = F.normalize(z_ts, dim=-1)
+        z_txt = F.normalize(z_txt, dim=-1)
+
+        logits = torch.matmul(z_ts, z_txt.t()) / tau  # (B, B)
+        labels = torch.arange(logits.size(0), device=logits.device)
+
+        loss_i2t = F.cross_entropy(logits, labels)
+        loss_t2i = F.cross_entropy(logits.t(), labels)
+        return 0.5 * (loss_i2t + loss_t2i)
+    
     def _build_model(self):
         model = self.model_dict[self.args.model].Model(self.args).float()
 
@@ -584,7 +674,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
     def _select_criterion(self):
         criterion = nn.MSELoss()
         return criterion
-    def run_one_batch(self, batch, data_provider, text_embedding=None, preds_text_embedding=None, prior_y=None, training=False, test=False):
+    def run_one_batch(self, batch, data_provider, text_embedding=None, preds_text_embedding=None, prior_y=None, training=False, test=False, return_align_feats=False):
         batch_x, batch_y, batch_x_mark, batch_y_mark, index = batch
         batch_x = batch_x.float().to(self.device)
         batch_y = batch_y.float().to(self.device)
@@ -628,33 +718,40 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         outputs = outputs[:, :, 0].unsqueeze(-1)  # (B, T, 1)
 
         # CA
+        L_TF = L_TP = MI_loss_f = MI_loss_p = outputs.new_tensor(0.0)
         if self.prompt_weight > 0:
             encoder_emb = self.model.get_encoder_embedding()
-            # prompt_emb = F.normalize(prompt_emb, p=2, dim=2) #(b, 24, 12)
-            # preds_prompt_emb = F.normalize(preds_prompt_emb, p=2, dim=2)
-            
-            # encoder_emb = F.normalize(encoder_emb, p=2, dim=1) # (b, 5, 512)
-            # coattn_out = self.ca_layer(prompt_emb, encoder_emb, encoder_emb, type='coattn') # ts
-            
-            # # print(coattn_out.shape)
-            # ca1 = self.ca_layer(preds_prompt_emb, coattn_out, coattn_out, type='ca1') # txt -> ts
-            # ca2 = self.ca_layer(coattn_out, preds_prompt_emb, preds_prompt_emb, type='ca2') # ts --> txt
-            # # print(ca1.shape, ca2.shape)
-            # fus = self.ca_layer(torch.cat((ca1, ca2), dim=-1), type='fuse')
-            fus = self.ca_layer(prompt_emb, preds_prompt_emb, encoder_emb)
+            # fus = self.ca_layer(prompt_emb, preds_prompt_emb, encoder_emb)
+            fus, L_TF, L_TP, MI_loss_f, MI_loss_p = self.ca_layer(prompt_emb, preds_prompt_emb, encoder_emb)
             outputs = outputs + fus
+
+        m = self.model.module if hasattr(self.model, 'module') else self.model
+        raw_enc = m.get_encoder_embedding()  # (B, enc_in, d_model)
 
         if self.prior_weight > 0:
             outputs = (1 - self.prior_weight) * outputs + self.prior_weight * prior_y
 
         true = batch_y[:, -self.args.pred_len:, f_dim:]
+
+        z_ts = z_txt = None
+        if return_align_feats:
+            z_txt = prompt_emb.mean(dim=1)  # (B, d)
+            #enc_proj = self.ca_layer.coattn.k_proj(encoder_emb)  # (B, L_ts, d)
+            proc_enc = self.ca_layer.pre_emb(raw_enc)          # (B, seq_len, d_model)
+            enc_proj = self.ca_layer.coattn.k_proj(proc_enc)   # (B, seq_len, text_dim)
+            z_ts = enc_proj.mean(dim=1)  # (B, d)
+
         if test==True:
             true = true.detach()
             outputs= outputs.detach()
             if data_provider.scale and self.args.inverse:
                 outputs = data_provider.inverse_transform(outputs.squeeze(0)).reshape(outputs.shape)
                 true = data_provider.inverse_transform(true.squeeze(0)).reshape(true.shape)
-        return outputs, true
+
+        if return_align_feats:
+            return outputs, true, L_TF, L_TP, MI_loss_f, MI_loss_p, z_ts, z_txt
+        
+        return outputs, true, L_TF, L_TP, MI_loss_f, MI_loss_p
 
     
     def vali(self, vali_data, vali_loader, criterion, all_metric=False):
@@ -670,7 +767,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         self.ca_layer.eval()
         with torch.no_grad():
             for i, batch in enumerate(vali_loader):
-                pred, true = self.run_one_batch(batch, vali_data)
+                pred, true, *_ = self.run_one_batch(batch, vali_data)
 
                 pred = pred.detach().cpu()
                 true = true.detach().cpu()
@@ -734,9 +831,14 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 model_optim.zero_grad()
                 model_optim_mlp.zero_grad()
                 model_optiom_ca.zero_grad()
-                pred, true = self.run_one_batch(batch, train_data, training=True)
+                # pred, true = self.run_one_batch(batch, train_data, training=True)
+                pred, true, L_TF, L_TP, MI_loss_f, MI_loss_p, z_ts, z_txt = self.run_one_batch(batch, train_data, training=True, return_align_feats=True)
 
                 loss = criterion(pred, true)
+                loss = loss + L_TF + L_TP
+                # loss = loss + 0.1 * (MI_loss_f + MI_loss_p)
+                # loss_nce = self._info_nce_loss(z_ts, z_txt)
+                # loss = loss + self.nce_weight * loss_nce
                 train_loss.append(loss.item())
 
                 if (i + 1) % 100 == 0:
@@ -805,7 +907,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             for i, batch in enumerate(test_loader):
                 batch_text = test_data.get_text(batch[-1])  # index
                 batch_text_flattened = batch_text_flattened = batch_text.reshape(-1).tolist()
-                batch_preds_text_flattened = test_data.get_preds_text(batch[-1]).reshape(-1).tolist() ## preds text 가져와야하ㅡㄴ거 아님..?
+                batch_preds_text_flattened = test_data.get_text(batch[-1]).reshape(-1).tolist()
 
                 if self.Doc2Vec==False:
                     tokenized_output = self.tokenizer(
@@ -876,7 +978,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
                 prior_y = torch.from_numpy(test_data.get_prior_y(batch[-1])).float().to(self.device)
 
-                pred, true = self.run_one_batch(batch, test_data, text_embedding=prompt_emb, preds_text_embedding=preds_prompt_emb,prior_y=prior_y, test=True)
+                pred, true, *_ = self.run_one_batch(batch, test_data, text_embedding=prompt_emb, preds_text_embedding=preds_prompt_emb,prior_y=prior_y, test=True)
 
                 pred = pred.detach().cpu().numpy()
                 true = true.detach().cpu().numpy()
@@ -924,4 +1026,4 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         np.save(folder_path + 'true.npy', trues)
 
         return mse
-    
+        

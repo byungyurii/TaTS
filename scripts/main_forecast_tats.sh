@@ -1,6 +1,6 @@
-all_models=("iTransformer" "PatchTST" "Crossformer" "DLinear" "FEDformer" "FiLM" "Autoformer" "Informer" "Transformer") # "PatchTST" "Crossformer" "DLinear" "FEDformer" "FiLM" "Autoformer" "Informer" "Transformer"
+all_models=("iTransformer" "PatchTST" "Crossformer" "DLinear" "FEDformer" "FiLM" "Autoformer" "Informer" "Transformer")
 
-GPU=1
+GPU=0
 
 root_path=./data
 
@@ -10,7 +10,6 @@ datasets=("Security")
 
 current_dir=$(pwd)
 
-prompt_weight=1
 prior_weight=0.5
 text_emb=12
 pred_lengths=(6 8 10 12)        # "Agriculture" "Climate" "Economy" "Security" "SocialGood" "Traffic"
@@ -29,7 +28,7 @@ do
             for pred_len in "${pred_lengths[@]}"
             do
                 echo "Running model $model_name with root $root_path, data $data_path, and pred_len $pred_len"
-                CUDA_VISIBLE_DEVICES=${GPU} python -u run.py \
+                CUDA_VISIBLE_DEVICES=${GPU} python -u run_backup.py \
                     --task_name long_term_forecast \
                     --is_training 1 \
                     --root_path $root_path \
@@ -44,12 +43,11 @@ do
                     --des Exp \
                     --seed $seed \
                     --prior_weight $prior_weight \
-                    --prompt_weight $prompt_weight \
-                    --save_name Security_mul_0.5.csv \
+                    --save_name Security_tats_0.csv \
                     --llm_model GPT2 \
                     --huggingface_token NA \
-                    --train_epochs 100 \
-                    --patience 60
+                    --train_epochs 50 \
+                    --patience 5
             done
         done
     done

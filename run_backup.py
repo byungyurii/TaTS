@@ -1,13 +1,11 @@
 import argparse
 import os
 import torch
-from exp.exp_long_term_forecasting import Exp_Long_Term_Forecast
+from exp.exp_long_term_forecasting_backup import Exp_Long_Term_Forecast
 from utils.print_args import print_args
 import random
 import numpy as np
 import re
-
-
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 if __name__ == '__main__':
@@ -126,8 +124,6 @@ if __name__ == '__main__':
     parser.add_argument('--use_fullmodel', type=int, default=0, help='use full model or just encoder')
     parser.add_argument('--use_closedllm', type=int, default=0, help='use closedllm or not')    
     parser.add_argument('--huggingface_token', type=str, help='your token of huggingface;need for llama3')
-    parser.add_argument('--note', type=str, help='put notes')
-
 
     # LATS
     parser.add_argument('--text_dim', type=int, default=12, help='text embedding dimension after low rank projection')
@@ -160,18 +156,12 @@ if __name__ == '__main__':
 
 
     args.features = 'S'
-    # if args.prompt_weight == 0:
-    #     args.enc_in = 1
-    #     args.dec_in = 1
-    # else:
-    #     args.enc_in = 1 + args.text_emb
-    #     args.dec_in = 1 + args.text_emb
-    args.enc_in = 1
-    args.dec_in = 1
+    args.enc_in = 1 + args.text_emb
+    args.dec_in = 1 + args.text_emb
     args.c_out = 1
     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!overwrite features to 'S' for univariate time series data and dim=1")
     fix_seed = args.seed
-    # args.prompt_weight=args.prior_weight
+    args.prompt_weight=args.prior_weight
     print("Now using seed {}".format(fix_seed))
     random.seed(fix_seed)
     torch.manual_seed(fix_seed)
@@ -202,7 +192,7 @@ if __name__ == '__main__':
                 args.task_name,
                 args.model_id,
                 args.model,
-                args.data_path[:-4],
+                args.data,
                 args.features,
                 args.seq_len,
                 args.label_len,
@@ -231,7 +221,7 @@ if __name__ == '__main__':
             args.task_name,
             args.model_id,
             args.model,
-            args.data_path[:-4],
+            args.data_path,
             args.features,
             args.seq_len,
             args.label_len,

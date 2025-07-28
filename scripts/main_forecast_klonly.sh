@@ -1,12 +1,11 @@
-all_models=("iTransformer" "PatchTST" "Crossformer" "DLinear" "FEDformer" "FiLM" "Autoformer" "Informer" "Transformer") # "PatchTST" "Crossformer" "DLinear" "FEDformer" "FiLM" "Autoformer" "Informer" "Transformer"
-
-GPU=1
+all_models=("iTransformer" "PatchTST" "Crossformer" "DLinear" "FEDformer" "FiLM" "Autoformer" "Informer" "Transformer") # "iTransformer" "PatchTST" "Crossformer" "DLinear" "FEDformer" "FiLM" "Autoformer" "Informer" "Transformer"
+GPU=2
 
 root_path=./data
 
 seeds=(2025)
 
-datasets=("Security")
+datasets=("Climate")
 
 current_dir=$(pwd)
 
@@ -29,7 +28,7 @@ do
             for pred_len in "${pred_lengths[@]}"
             do
                 echo "Running model $model_name with root $root_path, data $data_path, and pred_len $pred_len"
-                CUDA_VISIBLE_DEVICES=${GPU} python -u run.py \
+                CUDA_VISIBLE_DEVICES=${GPU} python -u run_klonly.py \
                     --task_name long_term_forecast \
                     --is_training 1 \
                     --root_path $root_path \
@@ -45,11 +44,12 @@ do
                     --seed $seed \
                     --prior_weight $prior_weight \
                     --prompt_weight $prompt_weight \
-                    --save_name Security_mul_0.5.csv \
+                    --save_name Climate_klprior_0.5_info.csv \
                     --llm_model GPT2 \
                     --huggingface_token NA \
                     --train_epochs 100 \
-                    --patience 60
+                    --patience 60 \
+                    --nce_weight 0.3
             done
         done
     done
