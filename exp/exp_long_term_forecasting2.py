@@ -172,7 +172,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         self.text_path = configs.text_path
         self.prompt_weight = configs.prompt_weight
         self.prior_weight = configs.prior_weight
-        self.nce_weight = getattr(args, 'nce_weight', 0.3)
+        self.nce_weight = configs.nce_weight
         self.nce_tau = getattr(args, 'nce_tau', 0.07)
 
         self.attribute = "final_sum"
@@ -378,7 +378,10 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             encoder_emb = m.get_encoder_embedding()
             fus = self.ca_layer(prompt_emb, preds_prompt_emb, encoder_emb)
             outputs = outputs + fus
-
+            
+        m = self.model.module if hasattr(self.model, 'module') else self.model
+        raw_enc = m.get_encoder_embedding()  # (B, enc_in, d_model)
+        
         # prior fusion
         if self.prior_weight > 0:
             outputs = (1 - self.prior_weight) * outputs + self.prior_weight * prior_y
@@ -389,7 +392,9 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         z_ts = z_txt = None
         if return_align_feats:
             z_txt = prompt_emb.mean(dim=1)  # (B, d)
-            enc_proj = self.ca_layer.coattn.k_proj(encoder_emb)  # (B, L_ts, d)
+            #enc_proj = self.ca_layer.coattn.k_proj(encoder_emb)  # (B, L_ts, d)
+            proc_enc = self.ca_layer.pre_emb(raw_enc)          # (B, seq_len, d_model)
+            enc_proj = self.ca_layer.coattn.k_proj(proc_enc)   # (B, seq_len, text_dim)
             z_ts = enc_proj.mean(dim=1)  # (B, d)
 
         if test:

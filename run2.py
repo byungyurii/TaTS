@@ -24,6 +24,7 @@ if __name__ == '__main__':
                         help='model name, options: [Autoformer, Transformer, TimesNet]')
     parser.add_argument('--ts_only', action='store_true', help='Use only TS data without text modality')
     parser.add_argument('--tats', action='store_true', help='tats benchmark')
+    parser.add_argument('--nce_weight', type=float, default=0.1)
 
 
     # data loader
@@ -197,7 +198,7 @@ if __name__ == '__main__':
         for ii in range(args.itr):
             # setting record of experiments
             exp = Exp(args)  # set experiments
-            setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_expand{}_dc{}_fc{}_eb{}_pw{}_{}_{}_{}'.format(
+            setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_expand{}_dc{}_fc{}_eb{}_pw{}_nw{}_{}_{}'.format(
                 #args.task_name,
                 args.model_id,
                 args.model,
@@ -217,7 +218,7 @@ if __name__ == '__main__':
                 args.embed,
                 args.distil,
                 args.prior_weight,
-                args.tats,
+                args.nce_weight,
                 args.des, ii)
 
             print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))

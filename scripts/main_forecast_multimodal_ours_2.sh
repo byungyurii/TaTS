@@ -1,20 +1,21 @@
-#all_models=("PatchTST" "Crossformer" "DLinear" "FEDformer" "FiLM" "Autoformer" "Informer" "Transformer")
-all_models=("iTransformer")
-GPU=5
+#all_models=("iTransformer" "Crossformer" "DLinear" "FEDformer" "FiLM" "Autoformer" "Informer" "Transformer")
+all_models=("DLinear" "FiLM")
+GPU=3
 
 root_path=./data
 
 seeds=(2025)
 
-datasets=("SocialGood")
+datasets=("Energy")
 
 current_dir=$(pwd)
 
-prior_weight=0.5
+prior_weight=0
 prompt_weight=1     #unimodal 돌릴 때 0, multimodal 1 
 text_emb=12
-#pred_lengths=(12 24 36 48)
-pred_lengths=(6 8 10 12)
+nce_weight=0.1
+pred_lengths=(12 24 36 48)
+#pred_lengths=(6 8 10 12)
 #pred_lengths=(48 96 192 336)
 
 for seed in "${seeds[@]}"
@@ -45,7 +46,7 @@ do
                     --des Exp \
                     --seed $seed \
                     --prior_weight $prior_weight \
-                    --save_name multimodal_0727_ours_infoNCEloss_socialgood_gpt2_pw0.5 \
+                    --save_name multimodal_0728_ours_infoNCEloss_energy_gpt2_pw0_nw0.1 \
                     --prompt_weight $prompt_weight \
                     --llm_model GPT2 \
                     --huggingface_token NA \
